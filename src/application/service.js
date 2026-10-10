@@ -109,6 +109,8 @@ export class ApplicationService {
       review,
       build: this.requireBuild(review.build_id)
     };
+  }
+
   async inspectPptxRefinement(inputFile) {
     if (path.extname(inputFile).toLowerCase() !== ".pptx") throw new ApplicationError("REFINEMENT_PPTX_REQUIRED", "visual refinement requires a PPTX source");
     const intake = new SourceIntake({ projectRoot: this.project.root, store: this.store, projectId: this.projectId });
@@ -125,11 +127,16 @@ export class ApplicationService {
   async proposePptxRefinementScope({ sourceId, targets, actor }) {
     const source = this.requireEntity("source", sourceId);
     if (source.mime !== "application/vnd.openxmlformats-officedocument.presentationml.presentation") throw new ApplicationError("REFINEMENT_PPTX_REQUIRED", "visual refinement requires a PPTX source");
-    const inspectionFile = resolveProjectPath(this.project.root, path.join(".pptops", "refinement", "inspections", source.sha256, "inspection.json"));
-    let inspection;
-    try { inspection = JSON.parse(await fs.readFile(inspectionFile, "utf8")); }
+    const inspectionRelative = path.join(".pptops", "refinement", "inspections", source.sha256, "inspection.json");
+    const inspectionFile = resolveProjectPath(this.project.root, inspectionRelative);
+    let inspection, inspectionBytes;
+    try { inspectionBytes = await fs.readFile(inspectionFile); inspection = JSON.parse(inspectionBytes.toString("utf8")); }
     catch (error) { if (error.code === "ENOENT") throw new ApplicationError("REFINEMENT_INSPECTION_REQUIRED", "inspect the PPTX before proposing a refinement scope"); throw error; }
-    const scope = createRefinementScope(inspection, { targets, actor });
+    const expected = await inspectRefinementPptx(resolveProjectPath(this.project.root, source.file), source);
+    const expectedBytes = Buffer.from(`${JSON.stringify(expected, null, 2)}\n`);
+    if (!inspectionBytes.equals(expectedBytes)) throw new ApplicationError("REFINEMENT_INSPECTION_CHANGED", "inspection evidence differs from the registered PPTX source");
+    const inspectionSha256 = crypto.createHash("sha256").update(inspectionBytes).digest("hex");
+    const scope = createRefinementScope(inspection, { targets, actor, inspectionFile: inspectionRelative, inspectionSha256 });
     const id = `scope-${stableHash(scope).slice(0, 16)}`;
     const relative = path.join(".pptops", "refinement", "scopes", id, "scope.json");
     await writeImmutableOrVerify(resolveProjectPath(this.project.root, relative), { ...scope, id });

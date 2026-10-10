@@ -31,19 +31,42 @@ test("refinement inspection assigns stable object identities and reports unsuppo
   await assert.rejects(inspectRefinementPptx(file, { ...source, sha256: "0".repeat(64) }), { code: "REFINEMENT_SOURCE_CHANGED" });
 });
 
-test("refinement scope permits only explicit visual properties on supported objects", async () => {
-  const file = path.join(await fs.mkdtemp(path.join(os.tmpdir(), "pptops-refinement-scope-")), "existing.pptx");
+test("refinement scope permits only explicit visual properties on supported objects", async (t) => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "pptops-refinement-scope-"));
+  t.after(() => fs.rm(root, { recursive: true, force: true }));
+  const file = path.join(root, "existing.pptx");
   const bytes = await refinementPptx();
   await fs.writeFile(file, bytes);
   const inspection = await inspectRefinementPptx(file, { id: "source-existing", sha256: sha(bytes), original_name: "existing.pptx", bytes: bytes.length });
   const textBox = inspection.slides[0].objects.find((object) => object.type === "text_box");
-  const scope = createRefinementScope(inspection, { actor: "user:syna", targets: [{ slide: 1, object_id: textBox.id, properties: ["font_size", "position"], objective: "Improve hierarchy" }] });
+  const anchor = { inspectionFile: ".pptops/refinement/inspections/example/inspection.json", inspectionSha256: "a".repeat(64) };
+  const scope = createRefinementScope(inspection, { ...anchor, actor: "user:syna", targets: [{ slide: 1, object_id: textBox.id, properties: ["font_size", "position"], objective: "Improve hierarchy" }] });
   assert.deepEqual(scope.targets[0].properties, ["font_size", "position"]);
   assert.equal(scope.preservation.text, true);
   assert.equal(scope.acceptance.real_powerpoint, "pending");
-  assert.throws(() => createRefinementScope(inspection, { actor: "user:syna", targets: [{ slide: 1, object_id: textBox.id, properties: ["text"] }] }), { code: "REFINEMENT_PROPERTY_FORBIDDEN" });
+  assert.equal(scope.inspection_sha256, "a".repeat(64));
+  assert.equal(scope.targets[0].object_fingerprint, textBox.fingerprint);
+  assert.throws(() => createRefinementScope(inspection, { ...anchor, actor: "user:syna", targets: [{ slide: 1, object_id: textBox.id, properties: ["text"] }] }), { code: "REFINEMENT_PROPERTY_FORBIDDEN" });
   const chart = inspection.slides[1].objects.find((object) => object.type === "chart");
-  assert.throws(() => createRefinementScope(inspection, { actor: "user:syna", targets: [{ slide: 2, object_id: chart.id, properties: ["fill_color"] }] }), { code: "REFINEMENT_OBJECT_UNSUPPORTED" });
+  assert.throws(() => createRefinementScope(inspection, { ...anchor, actor: "user:syna", targets: [{ slide: 2, object_id: chart.id, properties: ["fill_color"] }] }), { code: "REFINEMENT_OBJECT_UNSUPPORTED" });
+});
+
+test("inspection follows presentation order and reports unsupported objects without broadcasting", async (t) => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "pptops-refinement-edge-"));
+  t.after(() => fs.rm(root, { recursive: true, force: true }));
+  const file = path.join(root, "edge.pptx"), bytes = await edgeCasePptx();
+  await fs.writeFile(file, bytes);
+  const report = await inspectRefinementPptx(file, { id: "source-edge", sha256: sha(bytes), original_name: "edge.pptx", bytes: bytes.length });
+  assert.equal(report.slides[0].part, "ppt/slides/slide2.xml");
+  assert.equal(report.slides[1].part, "ppt/slides/slide1.xml");
+  assert.deepEqual(report.slides[0].objects.map((object) => object.type), ["media", "table", "ole_object", "connector"]);
+  assert.deepEqual(report.slides[0].unsupported.map((finding) => finding.feature), ["media", "table", "ole_object", "connector"]);
+  assert.ok(report.slides[0].unsupported.every((finding) => finding.object_id));
+  assert.equal(report.slides[1].objects.length, 1, "AlternateContent Choice and Fallback must not duplicate an object");
+  const object = report.slides[1].objects[0];
+  assert.deepEqual(object.locator, { slide: 2, native_id: "20" });
+  assert.equal(object.id, "slide-002-object-20");
+  assert.match(object.fingerprint, /^[a-f0-9]{16}$/);
 });
 
 test("application service stores the original, inspection, and idempotent scope without editing the PPTX", async (t) => {
@@ -61,12 +84,32 @@ test("application service stores the original, inspection, and idempotent scope 
     const first = await service.proposePptxRefinementScope(request);
     const second = await service.proposePptxRefinementScope(request);
     assert.equal(second.scope.id, first.scope.id);
+    assert.equal(first.scope.inspection_file, inspected.inspection_file.replaceAll("\\", "/"));
+    assert.match(first.scope.inspection_sha256, /^[a-f0-9]{64}$/);
     assert.equal(sha(await fs.readFile(path.join(projectDir, inspected.source.file))), sha(bytes));
     assert.equal(JSON.parse(await fs.readFile(path.join(projectDir, first.scope_file), "utf8")).acceptance.user_decision, "pending");
   } finally {
     service.close();
     await fs.rm(root, { recursive: true, force: true });
   }
+});
+
+test("application service rejects modified inspection evidence", async (t) => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "pptops-refinement-integrity-"));
+  t.after(() => fs.rm(root, { recursive: true, force: true }));
+  const projectDir = path.join(root, "project");
+  await initializeProject(projectDir, { name: "integrity-fixture", title: "Integrity Fixture" });
+  const input = path.join(root, "existing.pptx"), bytes = await refinementPptx();
+  await fs.writeFile(input, bytes);
+  const service = await ApplicationService.open(projectDir);
+  try {
+    const inspected = await service.inspectPptxRefinement(input);
+    const inspectionFile = path.join(projectDir, inspected.inspection_file);
+    const changed = JSON.parse(await fs.readFile(inspectionFile, "utf8"));
+    changed.slide_count = 999;
+    await fs.writeFile(inspectionFile, `${JSON.stringify(changed, null, 2)}\n`);
+    await assert.rejects(service.proposePptxRefinementScope({ sourceId: inspected.source.id, actor: "user:syna", targets: [{ slide: 1, object_id: inspected.inspection.slides[0].objects[0].id, properties: ["position"] }] }), { code: "REFINEMENT_INSPECTION_CHANGED" });
+  } finally { service.close(); }
 });
 
 async function refinementPptx() {
@@ -78,6 +121,21 @@ async function refinementPptx() {
     <p:pic><p:nvPicPr><p:cNvPr id="3" name="Photo"/></p:nvPicPr><p:spPr><a:xfrm><a:off x="500" y="600"/><a:ext cx="700" cy="800"/></a:xfrm></p:spPr></p:pic>
   </p:spTree></p:cSld><p:timing/></p:sld>`);
   zip.file("ppt/slides/slide2.xml", `<p:sld><p:cSld><p:spTree><p:graphicFrame><p:nvGraphicFramePr><p:cNvPr id="4" name="Chart"/></p:nvGraphicFramePr><a:graphic><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/chart"/></a:graphic></p:graphicFrame></p:spTree></p:cSld></p:sld>`);
+  return zip.generateAsync({ type: "nodebuffer" });
+}
+
+async function edgeCasePptx() {
+  const zip = new JSZip();
+  zip.file("[Content_Types].xml", "<Types/>");
+  zip.file("ppt/presentation.xml", `<p:presentation><p:sldIdLst><p:sldId id="256" r:id="rId3"/><p:sldId id="257" r:id="rId2"/></p:sldIdLst></p:presentation>`);
+  zip.file("ppt/_rels/presentation.xml.rels", `<Relationships><Relationship Id="rId2" Target="slides/slide1.xml"/><Relationship Id="rId3" Target="slides/slide2.xml"/></Relationships>`);
+  zip.file("ppt/slides/slide1.xml", `<p:sld><p:cSld><p:spTree><mc:AlternateContent><mc:Choice Requires="a14"><p:sp><p:nvSpPr><p:cNvPr id="20" name="Choice"/></p:nvSpPr><p:spPr/></p:sp></mc:Choice><mc:Fallback><p:sp><p:nvSpPr><p:cNvPr id="20" name="Fallback"/></p:nvSpPr><p:spPr/></p:sp></mc:Fallback></mc:AlternateContent></p:spTree></p:cSld></p:sld>`);
+  zip.file("ppt/slides/slide2.xml", `<p:sld><p:cSld><p:spTree>
+    <p:pic><p:nvPicPr><p:cNvPr id="2" name="Video"/><p:nvPr><a:videoFile r:link="rId9"/></p:nvPr></p:nvPicPr><p:spPr/></p:pic>
+    <p:graphicFrame><p:nvGraphicFramePr><p:cNvPr id="3" name="Table"/></p:nvGraphicFramePr><a:graphic><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/table"/></a:graphic></p:graphicFrame>
+    <p:graphicFrame><p:nvGraphicFramePr><p:cNvPr id="4" name="OLE"/></p:nvGraphicFramePr><a:graphic><a:graphicData><p:oleObj/></a:graphicData></a:graphic></p:graphicFrame>
+    <p:cxnSp><p:nvCxnSpPr><p:cNvPr id="5" name="Connector"/></p:nvCxnSpPr><p:spPr/></p:cxnSp>
+  </p:spTree></p:cSld></p:sld>`);
   return zip.generateAsync({ type: "nodebuffer" });
 }
 
