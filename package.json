@@ -4,11 +4,16 @@
   "license": "MIT",
   "private": true,
   "description": "A controlled production workflow for HTML presentations and editable PPTX delivery.",
+  "engines": {
+    "node": ">=22"
+  },
   "type": "module",
   "bin": {
-    "pptops": "./src/cli.js"
+    "pptops": "./src/cli.js",
+    "pptops-mcp": "./src/mcp/server.js"
   },
   "scripts": {
+    "mcp": "node src/mcp/server.js",
     "test": "node --test --test-concurrency=1 test/*.test.js",
     "check": "node --test test/boundary-images.test.js test/integration.test.js",
     "update:check": "node update.mjs check",
@@ -19,7 +24,12 @@
     "package:update": "node scripts/build-system-update.mjs"
   },
   "dependencies": {
+    "@modelcontextprotocol/server": "^2.3.1",
     "jszip": "^3.10.1",
-    "pptxgenjs": "^4.0.1"
+    "pptxgenjs": "^4.0.1",
+    "zod": "^4.6.5"
+  },
+  "devDependencies": {
+    "@modelcontextprotocol/client": "^2.3.1"
   }
 }
