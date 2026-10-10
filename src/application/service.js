@@ -22,7 +22,7 @@ import { manageCorporateProfile, materializeCorporateProfile } from "../template
 import { freezeAudienceVariant, manageAudienceVariants } from "../variants/lifecycle.js";
 import { assertBoundaryGeneratedImages } from "../visual-assets/boundary-policy.js";
 import { buildCitationManifest } from "../citations/manifest.js";
-import { SourceIntake } from "../sources/intake.js";
+import { multimodalCapabilities, SourceIntake } from "../sources/intake.js";
 import { compareSourceRevision } from "../sources/revision-impact.js";
 
 const CONTRACT_FILES = ["project.json", "sources.json", "outline.json", "pages.json", "theme.json", "assets.json", "templates.json"];
@@ -109,6 +109,11 @@ export class ApplicationService {
       build: this.requireBuild(review.build_id)
     };
   }
+  async importSource(inputFile, options = {}) {
+    return new SourceIntake({ projectRoot: this.project.root, store: this.store, projectId: this.projectId }).importFile(inputFile, options);
+  }
+
+  sourceIntakeCapabilities() { return multimodalCapabilities(); }
 
   async previewSourceUpdate(sourceId, inputFile) {
     const source = this.store.getEntity(this.projectId, "source", sourceId) ?? this.project.contracts.sources.find((item) => item.id === sourceId);

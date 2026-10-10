@@ -19,7 +19,8 @@ const HELP = `PPT-Ops 1.0
 Usage:
   pptops init <project-dir> [--name <id>] [--title <title>] [--delivery-mode <live_talk|workshop|pitch|leave_behind|async>] [--accessibility-profile <json>]
   pptops migrate <foundation-project-dir> --to <v1-project-dir>
-  pptops import <project-dir> --file <markdown|docx|pptx>
+  pptops import <project-dir> --file <markdown|docx|pptx|png|jpeg|wav|mp3|mp4|webm>
+  pptops source-capabilities <project-dir>
   pptops visual-preference <repository-root> --action <inspect|nominate|observe|propose|feedback|decide|revise|remove> [--payload <json>]
   pptops design-context <project-dir> [--repository-root <path>]
   pptops validate <project-dir>
@@ -145,15 +146,14 @@ try {
     const errors = validateProject(project);
     if (!["review", "handoff", "accessibility-audit"].includes(command) && errors.length > 0) failValidation(errors);
 
-    if (command === "import") {
-      if (!options.file) throw new Error("import requires --file <markdown|docx|pptx>");
-      const [{ InfrastructureStore }, { SourceIntake }] = await Promise.all([import("./infrastructure/store.js"), import("./sources/intake.js")]);
-      const store = new InfrastructureStore(path.join(project.root, ".pptops", "metadata.sqlite"));
+    if (["import", "source-capabilities"].includes(command)) {
+      if (command === "import" && !options.file) throw new Error("import requires --file <supported-source>");
+      const { ApplicationService } = await import("./application/service.js");
+      const service = await ApplicationService.open(project.root);
       try {
-        store.registerProject({ id: project.project.name, root: project.root, title: project.project.title });
-        const result = await new SourceIntake({ projectRoot: project.root, store, projectId: project.project.name }).importFile(options.file);
-        console.log(JSON.stringify({ command, project: project.project.name, duplicate: result.duplicate, source: result.source, extracted: result.extracted }, null, 2));
-      } finally { store.close(); }
+        const result = command === "import" ? await service.importSource(options.file) : service.sourceIntakeCapabilities();
+        console.log(JSON.stringify(command === "import" ? { command, project: project.project.name, duplicate: result.duplicate, source: result.source, extracted: result.extracted } : { command, project: project.project.name, capabilities: result }, null, 2));
+      } finally { service.close(); }
     } else if (command === "accessibility-audit") {
       const { auditAccessibility } = await import("./accessibility/index.js");
       const { auditStoredBuild, auditAccessibilityArtifacts } = await import("./accessibility/artifacts.js");

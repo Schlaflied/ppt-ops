@@ -5,7 +5,7 @@
 
 ## Decision
 
-Markdown, DOCX, and PPTX enter the system through one bounded intake service. The service verifies extension/signature/package structure, computes SHA-256 before persistence, and deduplicates within a project by content hash. Original bytes are copied once to `.pptops/sources/<sha256>/` and never edited.
+Markdown, DOCX, PPTX and Stage 1 multimedia registrations enter the system through one bounded intake service and the ApplicationService boundary. The service verifies extension/signature/package structure, computes SHA-256 before persistence, and deduplicates within a project by content hash. Original bytes are copied once to `.pptops/sources/<sha256>/` and never edited.
 
 Extraction produces normalized text plus stable source locators: line ranges for Markdown, paragraph indexes for DOCX, and slide/text indexes for PPTX. Manual corrections create a new extraction revision and a new Source metadata revision while retaining the original bytes and earlier extraction.
 
@@ -17,3 +17,4 @@ Open XML archives are rejected for unsafe paths, excessive entry count, oversize
 - Reimporting identical content is observable and does not create conflicting truth sources.
 - Corrections are auditable without rewriting user material.
 - Rich formatting and chart semantics are outside intake; T6 renderers and later adapters may consume additional normalized metadata.
+- Image, audio and video Stage 1 intake stores only an immutable source plus a normalized evidence/capability manifest. It does not claim OCR, transcription or video understanding; those remain explicit pending capabilities and require review. See [multimodal source intake](../multimodal-source-intake.md).
