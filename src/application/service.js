@@ -45,6 +45,23 @@ export class ApplicationService {
     return new ApplicationService(project, store);
   }
 
+  static async openReadOnly(projectDir) {
+    const project = await readProject(projectDir);
+    if (project.contractModel !== "v1") throw new ApplicationError("V1_PROJECT_REQUIRED", "application commands require a V1 project");
+    const databaseFile = path.join(project.root, ".pptops", "metadata.sqlite");
+    try { await fs.access(databaseFile); }
+    catch (error) {
+      if (error.code === "ENOENT") throw new ApplicationError("STORE_NOT_INITIALIZED", "project metadata store does not exist; initialize it with the PPT-Ops CLI first");
+      throw error;
+    }
+    const store = new InfrastructureStore(databaseFile, { readOnly: true });
+    if (!store.getProject(project.project.name)) {
+      store.close();
+      throw new ApplicationError("STORE_NOT_INITIALIZED", "project metadata store does not contain this project; initialize it with the PPT-Ops CLI first");
+    }
+    return new ApplicationService(project, store);
+  }
+
   constructor(project, store) {
     this.project = project;
     this.store = store;

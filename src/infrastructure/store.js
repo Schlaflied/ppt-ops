@@ -8,14 +8,18 @@ const APPEND_ONLY_KINDS = new Set(["approval", "candidate_feedback", "powerpoint
 const RUNNING_BUILD_STATES = ["preparing", "rendering", "validating"];
 
 export class InfrastructureStore {
-  constructor(databaseFile) {
+  constructor(databaseFile, { readOnly = false } = {}) {
     const file = path.resolve(databaseFile);
-    fs.mkdirSync(path.dirname(file), { recursive: true });
+    if (!readOnly) fs.mkdirSync(path.dirname(file), { recursive: true });
     this.databaseFile = file;
-    this.db = new DatabaseSync(file);
-    this.db.exec("PRAGMA foreign_keys = ON; PRAGMA journal_mode = WAL; PRAGMA busy_timeout = 5000;");
-    this.migrate();
-    this.recoverInterruptedBuilds();
+    this.db = new DatabaseSync(file, { readOnly });
+    this.db.exec(readOnly
+      ? "PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 5000;"
+      : "PRAGMA foreign_keys = ON; PRAGMA journal_mode = WAL; PRAGMA busy_timeout = 5000;");
+    if (!readOnly) {
+      this.migrate();
+      this.recoverInterruptedBuilds();
+    }
   }
 
   close() { this.db.close(); }

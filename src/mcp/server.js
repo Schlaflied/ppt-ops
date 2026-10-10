@@ -49,7 +49,11 @@ export function createPptOpsMcpServer(projectDir) {
     if (value.artifact_type === "presentation" && !value.build_id) context.addIssue({ code: "custom", path: ["build_id"], message: "presentation 需要 build_id" });
     if (value.artifact_type === "outline" && value.build_id) context.addIssue({ code: "custom", path: ["build_id"], message: "outline 不接受 build_id" });
   }), async ({ artifact_type, build_id }) => {
-    return withService(projectDir, (service) => service.deliveryCapabilities(artifact_type, build_id));
+    return withService(projectDir, async (service) => ({
+      artifact_type,
+      build_id: build_id ?? null,
+      capabilities: await service.deliveryCapabilities(artifact_type, build_id)
+    }));
   });
 
   return server;
@@ -62,13 +66,14 @@ function registerReadOnlyTool(server, name, description, inputSchema, handler) {
       return { content: [{ type: "text", text: JSON.stringify(data) }], structuredContent: data };
     } catch (error) {
       const failure = sanitizeError(error);
+      console.error(JSON.stringify(failure));
       return { isError: true, content: [{ type: "text", text: JSON.stringify(failure) }], structuredContent: failure };
     }
   });
 }
 
 async function withService(projectDir, operation) {
-  const service = await ApplicationService.open(projectDir);
+  const service = await ApplicationService.openReadOnly(projectDir);
   try { return await operation(service); }
   finally { service.close(); }
 }
@@ -79,9 +84,13 @@ function sanitize(value) {
   if (Array.isArray(value)) return value.map(sanitize);
   if (!value || typeof value !== "object") return value;
   return Object.fromEntries(Object.entries(value)
-    .filter(([key]) => !/(authorization|password|secret|token)/i.test(key) && key !== "root_path")
+    .filter(([key]) => !SENSITIVE_KEYS.has(key.toLowerCase()))
     .map(([key, item]) => [key, sanitize(item)]));
 }
+
+const SENSITIVE_KEYS = new Set([
+  "authorization", "password", "secret", "api_key", "apikey", "access_token", "refresh_token", "root_path"
+]);
 
 function sanitizeError(error) {
   if (error instanceof ApplicationError) return { error: { code: error.code, message: error.message, ...(error.details ? { details: sanitize(error.details) } : {}) } };
@@ -92,7 +101,11 @@ class McpConfigurationError extends Error {
   constructor(code, message) { super(message); this.code = code; }
 }
 
-const isMain = process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url);
+export async function isMainModule(entry = process.argv[1]) {
+  return Boolean(entry) && await fs.realpath(entry).catch(() => undefined) === fileURLToPath(import.meta.url);
+}
+
+const isMain = await isMainModule();
 if (isMain) {
   try {
     const projectDir = await resolveProjectDirectory(process.argv.slice(2));
