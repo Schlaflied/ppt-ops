@@ -150,6 +150,7 @@ Actions 也会产出带校验文件的系统更新包，用来体验当前进展
 - [演讲记录与复盘回流](docs/delivery-retro.md)
 - [开发者指南](docs/developer-guide.md)
 - [本地 MCP Server（第一阶段）](docs/mcp-server.md)
+- [现有 PPTX 视觉润色（第一阶段）](docs/pptx-visual-refinement.md)
 - [Accessibility Mode 与证据边界](docs/accessibility-mode.md)
 - [Visual Asset Pipeline 需求](docs/visual-asset-pipeline-requirements.md)
 - [Visual Asset Pipeline 交付 DAG](docs/visual-asset-pipeline-dag.md)
