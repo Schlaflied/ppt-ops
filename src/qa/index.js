@@ -6,6 +6,7 @@ import path from "node:path";
 import { promisify } from "node:util";
 import JSZip from "jszip";
 import { analyzeScreenshotEvidence } from "./screenshot-evidence.js";
+import { analyzeImageSemantics } from "./image-semantics.js";
 
 import { densityGuidanceFor, visibleCharacterCount } from "../contracts/delivery.js";
 import { ONLINE_LECTURE_MODE, onlineLectureSettings } from "../contracts/online-lecture.js";
@@ -23,6 +24,7 @@ export async function inspectPresentation({ project, pptxFile, evidenceDir, rend
     findings: structural.findings,
     pages: structural.pages,
     screenshot_evidence: structural.screenshot_evidence,
+    image_semantics: structural.image_semantics,
     ...(structural.online_lecture ? { online_lecture: structural.online_lecture } : {}),
     rendering
   };
@@ -63,7 +65,9 @@ export async function inspectPptxStructure(pptxFile, project, options = {}) {
   }
   const onlineMode = project.project?.delivery_mode === ONLINE_LECTURE_MODE;
   const screenshotEvidence = analyzeScreenshotEvidence(project, assetPlacements, { ...options, ...(onlineMode ? { downscaledViews: [720] } : {}) });
+  const imageSemantics = analyzeImageSemantics(project, assetPlacements);
   findings.push(...screenshotEvidence.findings);
+  findings.push(...imageSemantics.findings);
   let onlineLecture;
   if (onlineMode) {
     const settings = onlineLectureSettings(project);
@@ -71,11 +75,11 @@ export async function inspectPptxStructure(pptxFile, project, options = {}) {
     findings.push(...onlineLecture.findings);
   }
   for (const page of pages) {
-    page.checks.push("screenshot-evidence");
+    page.checks.push("screenshot-evidence", "image-semantics");
     if (onlineMode) page.checks.push("online-safe-zones", "online-720p-legibility");
     page.finding_count = findings.filter((item) => item.page === page.page).length;
   }
-  return { pages, findings, screenshot_evidence: screenshotEvidence, ...(onlineLecture ? { online_lecture: onlineLecture } : {}) };
+  return { pages, findings, screenshot_evidence: screenshotEvidence, image_semantics: imageSemantics, ...(onlineLecture ? { online_lecture: onlineLecture } : {}) };
 }
 
 export async function renderPresentation({ pptxFile, evidenceDir, commands = defaultCommands(), downscaleHeights = [] }) {

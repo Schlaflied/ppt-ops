@@ -24,6 +24,8 @@ const RELATIONS = ["sequence", "parallel", "cause_effect", "before_after", "hier
 const CONTENT_STATES = ["draft", "prototype", "approved", "built", "reviewed"];
 const SCREENSHOT_CONTENT_ROLES = ["contextual", "read_required"];
 const SCREENSHOT_TREATMENTS = ["crop", "zoom", "callout", "annotation"];
+const IMAGE_ANNOTATION_STATES = ["machine_observed", "user_confirmed"];
+const ANCHOR_EDGES = ["top", "right", "bottom", "left", "center"];
 
 export function validateV1Entity(entity, expectedKind) {
   const errors = [];
@@ -93,6 +95,7 @@ const validators = {
     if (!Array.isArray(value.asset_slots)) errors.push("asset_slots must be an array");
     for (const [index, slot] of (value.asset_slots ?? []).entries()) {
       if (slot?.evidence_purpose !== undefined && !hasText(slot.evidence_purpose)) errors.push(`asset_slots[${index}].evidence_purpose must be non-empty`);
+      if (slot?.region_mappings !== undefined) validateRegionMappings(slot.region_mappings, `asset_slots[${index}].region_mappings`, errors);
     }
 
     errors.push(...validateDiagram(value.diagram));
@@ -105,6 +108,7 @@ const validators = {
   asset(value, errors) {
     requireText(value, "file", errors); requireText(value, "type", errors); requireHash(value, errors);
     if (value.screenshot_evidence !== undefined) validateScreenshotEvidence(value.screenshot_evidence, "screenshot_evidence", errors);
+    if (value.image_semantics !== undefined) validateImageSemantics(value.image_semantics, "image_semantics", errors);
   },
   visual_asset_brief(value, errors) {
     requireEnum(value, "role", ["character", "scene", "diagram", "background"], errors);
@@ -193,7 +197,16 @@ function validateReferences(bundle, errors) {
   for (const section of bundle.outline?.sections ?? []) for (const id of section.page_ids ?? []) expect(id, "page_spec", "outline.sections.page_ids");
   for (const page of bundle.pages ?? []) {
     for (const ref of page.source_refs ?? []) expect(ref.source_id, "source", `${page.id}.source_refs`);
-    for (const slot of page.asset_slots ?? []) expect(slot.asset_id, "asset", `${page.id}.asset_slots`);
+    for (const slot of page.asset_slots ?? []) {
+      expect(slot.asset_id, "asset", `${page.id}.asset_slots`);
+      const asset = (bundle.assets ?? []).find(({ id }) => id === slot.asset_id);
+      const regionIds = new Set(asset?.image_semantics?.semantic_regions?.map(({ id }) => id) ?? []);
+      const anchorIds = new Set(asset?.image_semantics?.anchor_edges?.map(({ id }) => id) ?? []);
+      for (const mapping of slot.region_mappings ?? []) {
+        if (!regionIds.has(mapping.region_id)) errors.push(`${page.id}.asset_slots region mapping references missing region: ${mapping.region_id}`);
+        if (mapping.anchor_id !== undefined && !anchorIds.has(mapping.anchor_id)) errors.push(`${page.id}.asset_slots region mapping references missing anchor: ${mapping.anchor_id}`);
+      }
+    }
   }
   if (Array.isArray(bundle.pages)) errors.push(...validateScriptStructure(bundle.pages));
 }
@@ -235,6 +248,59 @@ function validateNormalizedRegion(value, field, errors) {
   if (Number.isFinite(value.height) && (value.height <= 0 || value.height > 1)) errors.push(`${field}.height must be greater than 0 and at most 1`);
   if (Number.isFinite(value.x) && Number.isFinite(value.width) && value.x + value.width > 1) errors.push(`${field}.x + width must not exceed 1`);
   if (Number.isFinite(value.y) && Number.isFinite(value.height) && value.y + value.height > 1) errors.push(`${field}.y + height must not exceed 1`);
+}
+
+function validateImageSemantics(value, field, errors) {
+  if (!isObject(value)) { errors.push(`${field} must be an object`); return; }
+  if (!IMAGE_ANNOTATION_STATES.includes(value.annotation_state)) errors.push(`${field}.annotation_state is invalid: ${value.annotation_state}`);
+  if (!Array.isArray(value.semantic_regions) || value.semantic_regions.length === 0) errors.push(`${field}.semantic_regions must be a non-empty array`);
+  const ids = new Set();
+  for (const [index, region] of (value.semantic_regions ?? []).entries()) {
+    const prefix = `${field}.semantic_regions[${index}]`;
+    if (!isId(region?.id)) errors.push(`${prefix}.id must be a stable lowercase identifier`);
+    else if (ids.has(region.id)) errors.push(`${field}.semantic_regions contains duplicate id: ${region.id}`); else ids.add(region.id);
+    if (!hasText(region?.role)) errors.push(`${prefix}.role is required`);
+    validateNormalizedRegion(region?.bounds, `${prefix}.bounds`, errors);
+  }
+  for (const name of ["text_safe_areas", "allowed_crops", "forbidden_crops"]) {
+    if (value[name] === undefined) continue;
+    if (!Array.isArray(value[name])) { errors.push(`${field}.${name} must be an array`); continue; }
+    for (const [index, region] of value[name].entries()) {
+      if (!isId(region?.id)) errors.push(`${field}.${name}[${index}].id must be a stable lowercase identifier`);
+      validateNormalizedRegion(region?.bounds, `${field}.${name}[${index}].bounds`, errors);
+    }
+  }
+  if (value.focal_points !== undefined) {
+    if (!Array.isArray(value.focal_points)) errors.push(`${field}.focal_points must be an array`);
+    else for (const [index, point] of value.focal_points.entries()) {
+      if (!isId(point?.id)) errors.push(`${field}.focal_points[${index}].id must be a stable lowercase identifier`);
+      if (!Number.isFinite(point?.x) || point.x < 0 || point.x > 1 || !Number.isFinite(point?.y) || point.y < 0 || point.y > 1) errors.push(`${field}.focal_points[${index}] must use normalized x/y coordinates`);
+    }
+  }
+  if (value.anchor_edges !== undefined) {
+    if (!Array.isArray(value.anchor_edges)) errors.push(`${field}.anchor_edges must be an array`);
+    else for (const [index, anchor] of value.anchor_edges.entries()) {
+      if (!isId(anchor?.id)) errors.push(`${field}.anchor_edges[${index}].id must be a stable lowercase identifier`);
+      if (!ids.has(anchor?.region_id)) errors.push(`${field}.anchor_edges[${index}].region_id references missing semantic region: ${anchor?.region_id}`);
+      if (!ANCHOR_EDGES.includes(anchor?.edge)) errors.push(`${field}.anchor_edges[${index}].edge is invalid: ${anchor?.edge}`);
+    }
+  }
+  if (value.minimum_display_size !== undefined) {
+    const size = value.minimum_display_size;
+    if (!isObject(size) || !Number.isFinite(size.width) || size.width <= 0 || size.width > 1 || !Number.isFinite(size.height) || size.height <= 0 || size.height > 1) errors.push(`${field}.minimum_display_size requires normalized positive width and height`);
+  }
+}
+
+function validateRegionMappings(value, field, errors) {
+  if (!Array.isArray(value)) { errors.push(`${field} must be an array`); return; }
+  const contentIds = new Set();
+  for (const [index, mapping] of value.entries()) {
+    if (!isId(mapping?.content_id)) errors.push(`${field}[${index}].content_id must be a stable lowercase identifier`);
+    else if (contentIds.has(mapping.content_id)) errors.push(`${field} contains duplicate content_id: ${mapping.content_id}`); else contentIds.add(mapping.content_id);
+    if (!isId(mapping?.region_id)) errors.push(`${field}[${index}].region_id must be a stable lowercase identifier`);
+    if (mapping?.anchor_id !== undefined && !isId(mapping.anchor_id)) errors.push(`${field}[${index}].anchor_id must be a stable lowercase identifier`);
+    if (mapping?.label !== undefined && (typeof mapping.label !== "string" || mapping.label.length < 1 || mapping.label.length > 80)) errors.push(`${field}[${index}].label must be a string of 1–80 characters`);
+  }
 }
 
 

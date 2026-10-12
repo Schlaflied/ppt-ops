@@ -17,7 +17,8 @@
         "transcript_file": { "type": "string", "minLength": 1 },
         "autoplay": { "type": "boolean" },
         "flashing": { "type": "boolean" },
-        "screenshot_evidence": { "$ref": "#/$defs/screenshotEvidence" }
+        "screenshot_evidence": { "$ref": "#/$defs/screenshotEvidence" },
+        "image_semantics": { "$ref": "#/$defs/imageSemantics" }
       }
     }
   ],
@@ -37,6 +38,47 @@
         "annotation_text": { "type": "string", "minLength": 1, "maxLength": 80 },
           "human_review_required": { "type": "boolean" }
       },
+      "additionalProperties": false
+    },
+    "imageSemantics": {
+      "type": "object",
+      "required": ["annotation_state", "semantic_regions"],
+      "properties": {
+        "annotation_state": { "type": "string", "enum": ["machine_observed", "user_confirmed"] },
+        "semantic_regions": { "type": "array", "uniqueItems": true, "items": { "$ref": "#/$defs/semanticRegion" } },
+        "focal_points": { "type": "array", "items": { "$ref": "#/$defs/focalPoint" } },
+        "text_safe_areas": { "type": "array", "items": { "$ref": "#/$defs/namedRegion" } },
+        "anchor_edges": { "type": "array", "items": { "$ref": "#/$defs/anchorEdge" } },
+        "minimum_display_size": { "$ref": "#/$defs/minimumDisplaySize" },
+        "allowed_crops": { "type": "array", "items": { "$ref": "#/$defs/namedRegion" } },
+        "forbidden_crops": { "type": "array", "items": { "$ref": "#/$defs/namedRegion" } }
+      },
+      "additionalProperties": false
+    },
+    "semanticRegion": {
+      "allOf": [
+        { "$ref": "#/$defs/namedRegion" },
+        { "type": "object", "required": ["role"], "properties": { "role": { "type": "string", "minLength": 1 } } }
+      ]
+    },
+    "namedRegion": {
+      "type": "object", "required": ["id", "bounds"],
+      "properties": { "id": { "type": "string", "pattern": "^[a-z0-9][a-z0-9._-]*$" }, "bounds": { "$ref": "#/$defs/normalizedRegion" } },
+      "additionalProperties": true
+    },
+    "focalPoint": {
+      "type": "object", "required": ["id", "x", "y"],
+      "properties": { "id": { "type": "string", "pattern": "^[a-z0-9][a-z0-9._-]*$" }, "x": { "type": "number", "minimum": 0, "maximum": 1 }, "y": { "type": "number", "minimum": 0, "maximum": 1 } },
+      "additionalProperties": false
+    },
+    "anchorEdge": {
+      "type": "object", "required": ["id", "region_id", "edge"],
+      "properties": { "id": { "type": "string", "pattern": "^[a-z0-9][a-z0-9._-]*$" }, "region_id": { "type": "string", "pattern": "^[a-z0-9][a-z0-9._-]*$" }, "edge": { "type": "string", "enum": ["top", "right", "bottom", "left", "center"] } },
+      "additionalProperties": false
+    },
+    "minimumDisplaySize": {
+      "type": "object", "required": ["width", "height"],
+      "properties": { "width": { "type": "number", "exclusiveMinimum": 0, "maximum": 1 }, "height": { "type": "number", "exclusiveMinimum": 0, "maximum": 1 } },
       "additionalProperties": false
     },
     "normalizedRegion": {
