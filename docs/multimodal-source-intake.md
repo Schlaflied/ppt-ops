@@ -21,3 +21,7 @@ Stage 1 不调用任何外部模型，也没有上传路径。manifest 明确记
 ## Stage 4：视频多通道证据
 
 `createVideoEvidence` 在同一视频 Source 下分别保存语音转写、画面文字和视觉事件。每条证据绑定毫秒时间范围与关键帧，可选绑定画面区域；无语音视频可以仅记录视觉事件。三个通道不会被压成单一转写文本，低置信度观察继续等待人工复核。
+
+## Stage 5：混合来源索引与冲突
+
+`createMixedSourceIndex` 汇总不同媒体 Source、按 hash 报告重复文件、按语义键报告互相冲突的断言，并把 Page Spec ID 绑定到确切 Source、assertion 与 locator。冲突默认保持 `pending`；只有显式用户 precedence 决定可以记录权威来源，系统不会自行挑选版本。
