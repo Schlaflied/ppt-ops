@@ -1,5 +1,6 @@
 import { validateDiagram } from "../layout/diagram.js";
 import { DELIVERY_MODES, INTERACTION_KINDS } from "./delivery.js";
+import { validateOnlineLectureProjectFields } from "./online-lecture.js";
 import { validateAccessibilityProfile } from "../accessibility/index.js";
 
 export const CONTRACT_VERSION = "1.0";
@@ -63,6 +64,7 @@ const validators = {
     requireIdList(value.asset_ids, "asset_ids", errors, true);
     if (value.outputs !== undefined) requireEnumList(value.outputs, "outputs", ["html", "pptx", "pdf", "png"], errors);
     if (value.delivery_mode !== undefined) requireEnum(value, "delivery_mode", DELIVERY_MODES, errors);
+    errors.push(...validateOnlineLectureProjectFields(value));
     for (const error of validateAccessibilityProfile(value.accessibility_profile)) errors.push(error);
   },
   source(value, errors) {

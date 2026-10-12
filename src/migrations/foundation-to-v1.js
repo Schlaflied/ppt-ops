@@ -52,7 +52,9 @@ export async function migrateFoundationProject(projectDir) {
     title: legacyProject.title, format: legacyProject.format, outputs: legacyProject.outputs,
     source_ids: sources.map(({ id }) => id), outline_id: outline.id, theme_id: theme.id,
     asset_ids: assets.map(({ id }) => id),
-    ...(legacyProject.delivery_mode ? { delivery_mode: legacyProject.delivery_mode } : {})
+    ...(legacyProject.delivery_mode ? { delivery_mode: legacyProject.delivery_mode } : {}),
+    ...(legacyProject.safe_zones ? { safe_zones: structuredClone(legacyProject.safe_zones) } : {}),
+    ...(legacyProject.interaction_interval_minutes !== undefined ? { interaction_interval_minutes: legacyProject.interaction_interval_minutes } : {})
   });
   const bundle = { project, sources, outline, pages, theme, assets, templates: [], candidates: [], approvals: [], versions: [], builds: [], reviews: [], handoffs: [] };
   const errors = validateV1Bundle(bundle);

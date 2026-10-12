@@ -12,7 +12,27 @@
     "source_files": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "type": "string", "minLength": 1 } },
     "theme_file": { "type": "string", "minLength": 1 },
     "assets_file": { "type": "string", "minLength": 1 },
-    "delivery_mode": { "type": "string", "enum": ["live_talk", "workshop", "pitch", "leave_behind", "async"] },
+    "delivery_mode": { "type": "string", "enum": ["live_talk", "workshop", "pitch", "leave_behind", "async", "online_lecture"] },
+    "safe_zones": {
+      "type": "array",
+      "description": "Screen-share occlusion zones for online_lecture, as presets or normalized 0..1 rectangles of the 16:9 slide.",
+      "items": {
+        "oneOf": [
+          { "type": "object", "required": ["preset"], "properties": { "preset": { "enum": ["tencent_meeting", "zoom", "feishu", "replay_captions"] } }, "additionalProperties": false },
+          {
+            "type": "object", "required": ["name", "x", "y", "width", "height"],
+            "properties": {
+              "name": { "type": "string", "pattern": "^[a-z0-9][a-z0-9._-]*$" },
+              "x": { "type": "number", "minimum": 0, "maximum": 1 }, "y": { "type": "number", "minimum": 0, "maximum": 1 },
+              "width": { "type": "number", "exclusiveMinimum": 0, "maximum": 1 }, "height": { "type": "number", "exclusiveMinimum": 0, "maximum": 1 },
+              "description": { "type": "string", "minLength": 1 }
+            },
+            "additionalProperties": false
+          }
+        ]
+      }
+    },
+    "interaction_interval_minutes": { "type": "number", "exclusiveMinimum": 0, "maximum": 60, "description": "online_lecture: maximum estimated minutes between audience_interaction pages (default 8)." },
     "outputs": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "type": "string", "enum": ["html", "pptx", "pdf", "png"] } }
   },
   "additionalProperties": false
