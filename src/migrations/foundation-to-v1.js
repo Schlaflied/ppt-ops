@@ -55,6 +55,8 @@ export async function migrateFoundationProject(projectDir) {
     source_ids: sources.map(({ id }) => id), outline_id: outline.id, theme_id: theme.id,
     asset_ids: assets.map(({ id }) => id),
     ...(legacyProject.delivery_mode ? { delivery_mode: legacyProject.delivery_mode } : {}),
+    ...(legacyProject.safe_zones ? { safe_zones: structuredClone(legacyProject.safe_zones) } : {}),
+    ...(legacyProject.interaction_interval_minutes !== undefined ? { interaction_interval_minutes: legacyProject.interaction_interval_minutes } : {}),
     ...(legacyProject.talk_budget ? { talk_budget: structuredClone(legacyProject.talk_budget) } : {}),
     ...(legacyProject.script_review ? { script_review: structuredClone(legacyProject.script_review) } : {})
   });

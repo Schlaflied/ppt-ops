@@ -17,13 +17,13 @@ const VISUAL_ASSET_COMMANDS = new Set(["visual-asset-prepare", "visual-asset-ing
 const HELP = `PPT-Ops 1.0
 
 Usage:
-  pptops init <project-dir> [--name <id>] [--title <title>] [--delivery-mode <live_talk|workshop|pitch|leave_behind|async>] [--accessibility-profile <json>]
+  pptops init <project-dir> [--name <id>] [--title <title>] [--delivery-mode <live_talk|workshop|pitch|leave_behind|async|online_lecture>] [--accessibility-profile <json>]
   pptops migrate <foundation-project-dir> --to <v1-project-dir>
   pptops import <project-dir> --file <markdown|docx|pptx>
   pptops visual-preference <repository-root> --action <inspect|nominate|observe|propose|feedback|decide|revise|remove> [--payload <json>]
   pptops design-context <project-dir> [--repository-root <path>]
   pptops validate <project-dir>
-  pptops html-qa <html-file> [--browser <path>] [--timeout <ms>]
+  pptops html-qa <html-file> [--browser <path>] [--timeout <ms>] [--safe-zones <tencent_meeting,zoom,feishu,replay_captions>]
   pptops accessibility-remediate <project-dir> --payload <json>
   pptops accessibility-audit <project-dir> [--build <id> | --html-file <file> --pptx-file <file>]
   pptops intake <project-dir>
@@ -98,7 +98,14 @@ try {
     if (!projectDir || projectDir.startsWith("--")) throw new Error("html-qa requires <html-file>");
     const options = parseOptions(argv.slice(2));
     const { inspectHtmlPresentation } = await import("./qa/html.js");
-    const result = await inspectHtmlPresentation({ htmlFile: projectDir, browserPath: options.browser, timeoutMs: options.timeout ? positiveInteger(options.timeout, "timeout") : undefined });
+    let onlineLecture;
+    if (options["safe-zones"] !== undefined) {
+      const { ONLINE_LECTURE_LEGIBILITY, SAFE_ZONE_PRESET_NAMES, resolveSafeZones } = await import("./contracts/online-lecture.js");
+      const presets = String(options["safe-zones"]).split(",").map((value) => value.trim()).filter(Boolean);
+      for (const preset of presets) if (!SAFE_ZONE_PRESET_NAMES.includes(preset)) throw new Error(`--safe-zones preset is invalid: ${preset}`);
+      onlineLecture = { safeZones: resolveSafeZones(presets.map((preset) => ({ preset }))), legibility: ONLINE_LECTURE_LEGIBILITY };
+    }
+    const result = await inspectHtmlPresentation({ htmlFile: projectDir, browserPath: options.browser, timeoutMs: options.timeout ? positiveInteger(options.timeout, "timeout") : undefined, onlineLecture });
     console.log(JSON.stringify({ command, ...result }, null, 2));
     if (result.status !== "passed") process.exitCode = 1;
   } else {
@@ -367,7 +374,7 @@ function parseOptions(args) {
     const value = args[index + 1];
     if (!key?.startsWith("--") || value === undefined || value.startsWith("--")) throw new Error(`invalid option: ${key ?? ""}`.trim());
     const name = key.slice(2);
-    if (!["action", "payload", "repository-root", "name", "title", "delivery-mode", "accessibility-profile", "html-file", "pptx-file", "pages", "format", "to", "file", "target-kind", "target-id", "page-id", "new-source", "patch", "base-revision", "candidate", "expected-revision", "parent-candidate", "hypothesis", "reconstruction", "status", "raw-feedback", "findings", "left-candidate", "right-candidate", "version", "variant", "targets", "build", "review", "decision", "evidence", "source", "source-revision", "selection-source", "selection", "approval", "artifact", "formats", "data-root", "brief", "response", "brief-id", "provider", "model", "mime", "generation", "actor", "verdict", "checks", "notes", "asset-id", "page-id", "slot-role", "alt", "fit", "browser", "timeout", "baseline", "handout-editions"].includes(name)) throw new Error(`unknown option: ${key}`);
+    if (!["action", "payload", "repository-root", "name", "title", "delivery-mode", "accessibility-profile", "html-file", "pptx-file", "pages", "format", "to", "file", "target-kind", "target-id", "page-id", "new-source", "patch", "base-revision", "candidate", "expected-revision", "parent-candidate", "hypothesis", "reconstruction", "status", "raw-feedback", "findings", "left-candidate", "right-candidate", "version", "variant", "targets", "build", "review", "decision", "evidence", "source", "source-revision", "selection-source", "selection", "approval", "artifact", "formats", "data-root", "brief", "response", "brief-id", "provider", "model", "mime", "generation", "actor", "verdict", "checks", "notes", "asset-id", "page-id", "slot-role", "alt", "fit", "browser", "timeout", "baseline", "handout-editions", "safe-zones"].includes(name)) throw new Error(`unknown option: ${key}`);
     options[name] = value;
   }
   return options;

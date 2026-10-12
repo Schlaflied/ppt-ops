@@ -49,3 +49,7 @@ Every finding identifies both `page` and `asset_id`. The report also sets `human
 `callout` and `annotation` generate a native editable focus rectangle and caption. The caption uses `annotation_text` when present, otherwise the page-specific or asset evidence purpose; keep it to 1–80 characters. The renderer reserves caption space, measures source dimensions, and maps the focus through contain/cover placement. A fully cropped-out focus or insufficient space fails explicitly. Screenshot pixels are never rewritten. PNG, JPEG, and SVG with a viewBox are measured; unsupported dimensions fail rather than guessing.
 
 Review measures visible focal area through the actual PPTX crop and identifies repeated images by embedded-media hashes, including Foundation assets with different IDs. These structural checks do not establish projection readability or human PowerPoint acceptance. `crop`/`zoom` remain authored-treatment declarations; automatic annotation rendering is a PPTX capability.
+
+## Online-lecture 720p view
+
+When `Project.delivery_mode` is `online_lecture`, the screenshot evidence report adds `downscaled_views`. It records each screenshot's visible focal region in pixels on a 1280×720 frame, and rendering adds 720p page images when ImageMagick is available. The online-lecture font, contrast and line checks run at this 720p scale; see [delivery selection](delivery-selection.md#online-lecture-mode). The view does not assess human readability.

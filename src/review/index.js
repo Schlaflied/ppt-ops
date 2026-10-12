@@ -5,6 +5,7 @@ import { validateProject } from "../core/validate.js";
 import { inspectPresentation } from "../qa/index.js";
 import { inspectHtmlPresentation } from "../qa/html.js";
 import { inspectDeliveryModeFit } from "../contracts/delivery.js";
+import { ONLINE_LECTURE_MODE, onlineLectureSettings } from "../contracts/online-lecture.js";
 import { auditAccessibilityArtifacts } from "../accessibility/artifacts.js";
 import { evaluateFactLedger } from "../facts/ledger.js";
 import { citationReviewEvidence } from "../citations/manifest.js";
@@ -114,7 +115,8 @@ export async function reviewProject(project, options = {}) {
   }
   if (options.htmlQa) {
     if (htmlFile) {
-      const qa = await inspectHtmlPresentation({ htmlFile, browserPath: options.browserPath, timeoutMs: options.htmlQaTimeoutMs });
+      const online = project.project?.delivery_mode === ONLINE_LECTURE_MODE ? onlineLectureSettings(project) : undefined;
+      const qa = await inspectHtmlPresentation({ htmlFile, browserPath: options.browserPath, timeoutMs: options.htmlQaTimeoutMs, ...(online ? { onlineLecture: { safeZones: online.safe_zones, legibility: online.legibility } } : {}) });
       automatedChecks.push({
         id: "html-visual-qa",
         kind: "automated",
