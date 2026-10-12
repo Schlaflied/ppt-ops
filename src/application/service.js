@@ -409,9 +409,17 @@ export class ApplicationService {
     return this.runBuild(buildId);
   }
 
-  async runReview(buildId) {
+  async runReview(buildId, options = {}) {
     const build = this.requireBuild(buildId);
     if (build.state !== "succeeded") throw new ApplicationError("BUILD_NOT_SUCCEEDED", "review requires a succeeded build");
+    if (options.requestId !== undefined) {
+      if (!hasText(options.requestId) || !/^[a-zA-Z0-9][a-zA-Z0-9._-]*$/.test(options.requestId)) throw new ApplicationError("MCP_REQUEST_ID_INVALID", "request_id must be a stable identifier");
+      const existing = this.store.listEntities(this.projectId, "review").find((review) => review.mcp_request_id === options.requestId);
+      if (existing) {
+        if (existing.build_id !== buildId) throw new ApplicationError("MCP_REQUEST_CONFLICT", "request_id already identifies a different Review request");
+        return { review: existing, report: null, reused: true };
+      }
+    }
     const frozenProject = await this.projectFromVersion(build.version_id);
     if (build.config?.citation_manifest) frozenProject.citationManifest = build.config.citation_manifest;
     const pptxFile = build.targets.includes("pptx") ? resolveProjectPath(this.project.root, path.join(".pptops", "builds", buildId, "pptx", "slides.pptx")) : undefined;
@@ -423,11 +431,11 @@ export class ApplicationService {
     const id = nextId("review", this.store.listEntities(this.projectId, "review"));
     const immutableReport = await this.files.writeImmutable(`.pptops/reviews/${id}/review-report.json`, `${JSON.stringify(report, null, 2)}\n`);
     const artifactHashes = await this.buildArtifactHashes(build);
-    let review = this.store.saveEntity(this.projectId, createV1Entity("review", id, { build_id: buildId, ...(build.config?.variant ? { variant: build.config?.variant } : {}), ...(build.config?.corporate_profile ? { corporate_profile: build.config.corporate_profile } : {}), artifact_hashes: artifactHashes, state: "automated_pending", automated: report.automated_checks, human: report.acceptance, report_file: immutableReport.file, report_sha256: immutableReport.sha256 }));
+    let review = this.store.saveEntity(this.projectId, createV1Entity("review", id, { build_id: buildId, ...(options.requestId ? { mcp_request_id: options.requestId } : {}), ...(build.config?.variant ? { variant: build.config?.variant } : {}), ...(build.config?.corporate_profile ? { corporate_profile: build.config.corporate_profile } : {}), artifact_hashes: artifactHashes, state: "automated_pending", automated: report.automated_checks, human: report.acceptance, report_file: immutableReport.file, report_sha256: immutableReport.sha256 }));
     review = this.store.saveEntity(this.projectId, { ...stripRevision(review), state: "automated_complete" });
     review = this.store.saveEntity(this.projectId, { ...stripRevision(review), state: "human_pending" });
     await this.files.writeManifest("review", id, stripRevision(review));
-    return { review, report };
+    return { review, report, reused: false };
   }
 
   async recordReview(reviewId, { decision, expectedRevision, evidence = {} }) {

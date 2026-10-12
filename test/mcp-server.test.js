@@ -51,10 +51,11 @@ test("MCP stdio server exposes and calls all five read-only tools without changi
     "pptops_delivery_capabilities",
     "pptops_project_inspect",
     "pptops_review_inspect",
+    "pptops_review_run",
     "pptops_source_import"
   ]);
-  assert.ok(listed.tools.filter(({ name }) => !["pptops_source_import", "pptops_build_create"].includes(name)).every((tool) => tool.annotations?.readOnlyHint === true));
-  assert.ok(listed.tools.filter(({ name }) => ["pptops_source_import", "pptops_build_create"].includes(name)).every((tool) => tool.annotations?.readOnlyHint === false));
+  assert.ok(listed.tools.filter(({ name }) => !["pptops_source_import", "pptops_build_create", "pptops_review_run"].includes(name)).every((tool) => tool.annotations?.readOnlyHint === true));
+  assert.ok(listed.tools.filter(({ name }) => ["pptops_source_import", "pptops_build_create", "pptops_review_run"].includes(name)).every((tool) => tool.annotations?.readOnlyHint === false));
 
   const result = await client.callTool({ name: "pptops_project_inspect", arguments: {} });
   assert.equal(result.isError, undefined);

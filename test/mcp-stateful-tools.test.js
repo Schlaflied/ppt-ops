@@ -10,6 +10,7 @@ import { initializeProject } from "../src/core/init.js";
 import { seedAcceptedBoundaryImages } from "./support/accepted-boundaries.js";
 
 const serverEntry = path.resolve("src/mcp/server.js");
+process.env.PPT_OPS_RENDER_QA = "0";
 
 test("MCP imports only an explicit project-contained source and keeps stable duplicate identity", async t => {
   const projectDir = await fixture(t);
@@ -45,6 +46,20 @@ test("MCP build creation returns an id, runs asynchronously, and reuses a reques
   assert.equal(repeated.structuredContent.build_id, created.structuredContent.build_id); assert.equal(repeated.structuredContent.reused, true);
   const conflict = await client.callTool({ name: "pptops_build_create", arguments: { ...input, targets: ["pptx"] } });
   assert.equal(conflict.structuredContent.error.code, "MCP_REQUEST_CONFLICT");
+});
+
+test("MCP review run preserves human acceptance boundaries and is idempotent", async t => {
+  const projectDir = await fixture(t); await seedAcceptedBoundaryImages(projectDir);
+  const service = await ApplicationService.open(projectDir); const version = await service.freezeVersion(); const built = await service.createBuild({ versionId: version.id, targets: ["pptx"] }); service.close();
+  const client = await connect(t, projectDir);
+  const input = { build_id: built.build.id, request_id: "review-request-001" };
+  const first = await client.callTool({ name: "pptops_review_run", arguments: input });
+  assert.equal(first.isError, undefined); assert.equal(first.structuredContent.state, "human_pending");
+  assert.ok(first.structuredContent.acceptance.every(({ status }) => status === "pending"));
+  const second = await client.callTool({ name: "pptops_review_run", arguments: input });
+  assert.equal(second.structuredContent.review_id, first.structuredContent.review_id); assert.equal(second.structuredContent.reused, true);
+  const inspected = await client.callTool({ name: "pptops_review_inspect", arguments: { review_id: first.structuredContent.review_id } });
+  assert.equal(inspected.structuredContent.review.state, "human_pending");
 });
 
 async function fixture(t) {

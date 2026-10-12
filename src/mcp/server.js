@@ -70,6 +70,12 @@ export function createPptOpsMcpServer(projectDir) {
     if (!queued.reused || queued.build.state === "queued") scheduleBuild(projectDir, queued.build.id);
     return { build_id: queued.build.id, state: queued.build.state, reused: queued.reused, status_tool: "pptops_build_status" };
   });
+  registerStatefulTool(server, "pptops_review_run", "对成功 Build 运行自动 Review；人工视觉与真实 PowerPoint 验收继续保持 pending。", z.object({
+    build_id: idSchema("Build"), request_id: idSchema("Request")
+  }).strict(), async ({ build_id, request_id }) => {
+    const result = await withWriteService(projectDir, (service) => service.runReview(build_id, { requestId: request_id }));
+    return { review_id: result.review.id, build_id, state: result.review.state, revision: result.review.revision, reused: result.reused, acceptance: result.review.human, automated_check_count: result.review.automated?.length ?? 0, inspect_tool: "pptops_review_inspect" };
+  });
 
   return server;
 }
