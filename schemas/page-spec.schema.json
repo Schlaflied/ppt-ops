@@ -26,6 +26,8 @@
     "estimated_duration_seconds": { "type": "integer", "minimum": 1, "description": "Planning estimate only; not evidence of rehearsed timing." },
     "speaker_notes": { "type": "string", "minLength": 1, "description": "Authored off-slide speaker notes. Never visible slide copy." },
     "delivery_feedback": { "$ref": "delivery-feedback.schema.json" },
+    "script_role": {"type": "string", "enum": ["transition", "core", "reference"], "description": "Script budget role: transition is one sentence, core is prioritized, reference is compressible or skippable. Defaults to core."},
+    "merged_with": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"oneOf": [{"type": "integer", "minimum": 1}, {"type": "string", "pattern": "^[a-z0-9][a-z0-9._-]*$"}]}, "description": "Pages (number or PageSpec id) whose narration is carried by this page's speaker_notes."},
     "speaker_note_intent": { "type": "string", "minLength": 1, "description": "Purpose of off-slide speaker support; never visible slide copy." },
     "audience_interaction": {
       "type": "object",

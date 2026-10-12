@@ -1,8 +1,10 @@
 import { validateDiagram } from "../layout/diagram.js";
 import { validateV1Bundle } from "../contracts/v1.js";
 import { DELIVERY_MODES, INTERACTION_KINDS, validateDeliveryFeedback } from "../contracts/delivery.js";
+import { validateOnlineLectureProjectFields } from "../contracts/online-lecture.js";
 import { validateAccessibilityProfile } from "../accessibility/index.js";
 import { validateFactLedger } from "../facts/ledger.js";
+import { validateScriptPageFields, validateScriptReviewConfig, validateScriptStructure, validateTalkBudget } from "../contracts/talk-budget.js";
 
 const RELATIONS = new Set(["sequence", "parallel", "cause_effect", "before_after", "hierarchy", "process", "cycle", "comparison", "hero"]);
 const STATUSES = new Set(["draft", "prototype", "approved", "built", "reviewed"]);
@@ -41,6 +43,7 @@ export function validatePage(page, assetIds = new Set()) {
   if (!STATUSES.has(page.status)) errors.push(`status is invalid: ${page.status}`);
   errors.push(...validateDiagram(page.diagram));
   validateDeliveryFields(page, errors);
+  errors.push(...validateScriptPageFields(page));
   return errors;
 }
 
@@ -61,7 +64,9 @@ export function validateProject(loaded) {
   if (!hasText(project.assets_file)) errors.push("project.assets_file is required");
   if (loaded.contractModel !== "v1" || project.outputs !== undefined) validateEnumList(project.outputs, "project.outputs", OUTPUTS, errors);
   if (project.delivery_mode !== undefined && !DELIVERY_MODES.includes(project.delivery_mode)) errors.push(`project.delivery_mode is invalid: ${project.delivery_mode}`);
+  for (const error of validateOnlineLectureProjectFields(project)) errors.push(`project.${error}`);
   for (const error of validateAccessibilityProfile(project.accessibility_profile)) errors.push(`project: ${error}`);
+  for (const error of [...validateTalkBudget(project.talk_budget), ...validateScriptReviewConfig(project.script_review)]) errors.push(`project.${error}`);
   if (loaded.factLedger) for (const error of validateFactLedger(loaded.factLedger, { projectId: project.name, sources: loaded.contracts?.sources, pages: loaded.contracts?.pages })) errors.push(`fact-ledger: ${error}`);
 
   for (const error of validateTheme(loaded.theme)) errors.push(`theme: ${error}`);
@@ -78,6 +83,7 @@ export function validateProject(loaded) {
     const sourceFile = typeof page?.source === "string" ? page.source.split("#", 1)[0] : undefined;
     if (sourceFile && !project.source_files?.includes(sourceFile)) errors.push(`page ${page.page ?? "?"}: source is not declared in project.source_files: ${sourceFile}`);
   }
+  if (Array.isArray(loaded.pages)) errors.push(...validateScriptStructure(loaded.pages));
   for (const reference of loaded.referencedFiles ?? []) if (!reference.exists) errors.push(`missing ${reference.kind} file${reference.id ? ` for ${reference.id}` : ""}: ${reference.file}`);
   return errors;
 }

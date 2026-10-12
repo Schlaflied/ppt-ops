@@ -8,18 +8,22 @@ import JSZip from "jszip";
 import { analyzeScreenshotEvidence } from "./screenshot-evidence.js";
 
 import { densityGuidanceFor, visibleCharacterCount } from "../contracts/delivery.js";
+import { ONLINE_LECTURE_MODE, onlineLectureSettings } from "../contracts/online-lecture.js";
+import { analyzeOnlineLecture, extractPptxOnlineElements } from "./online-lecture.js";
 
 const execFileAsync = promisify(execFile);
 const POWERPOINT = "/Applications/Microsoft PowerPoint.app";
 
 export async function inspectPresentation({ project, pptxFile, evidenceDir, render = true, commands = defaultCommands() }) {
   const structural = await inspectPptxStructure(pptxFile, project);
-  const rendering = render ? await renderPresentation({ pptxFile, evidenceDir, commands }) : degradedRendering("rendering disabled");
+  const downscaleHeights = project.project?.delivery_mode === ONLINE_LECTURE_MODE ? [720] : [];
+  const rendering = render ? await renderPresentation({ pptxFile, evidenceDir, commands, downscaleHeights }) : degradedRendering("rendering disabled");
   return {
     status: structural.findings.some(({ severity }) => severity === "error") ? "failed" : rendering.status === "rendered" ? "passed" : "degraded",
     findings: structural.findings,
     pages: structural.pages,
     screenshot_evidence: structural.screenshot_evidence,
+    ...(structural.online_lecture ? { online_lecture: structural.online_lecture } : {}),
     rendering
   };
 }
@@ -30,6 +34,7 @@ export async function inspectPptxStructure(pptxFile, project, options = {}) {
   const pages = [];
   const findings = [];
   const assetPlacements = [];
+  const onlinePages = [];
   for (const [index, name] of slideNames.entries()) {
     const page = index + 1;
     const xml = await archive.file(name).async("string");
@@ -42,6 +47,7 @@ export async function inspectPptxStructure(pptxFile, project, options = {}) {
       const sha256 = media ? crypto.createHash("sha256").update(await media.async("nodebuffer")).digest("hex") : undefined;
       assetPlacements.push({ page, asset_id: assetId, x, y, width, height, crop, sha256 });
     }
+    if (project.project?.delivery_mode === ONLINE_LECTURE_MODE) onlinePages.push(extractPptxOnlineElements(xml, page));
     const declaredFonts = [...xml.matchAll(/typeface="([^"]+)"/g)].map((match) => match[1]);
     const pageFindings = [
       ...checkBounds(shapes, page),
@@ -56,16 +62,24 @@ export async function inspectPptxStructure(pptxFile, project, options = {}) {
     findings.push(...pageFindings);
     pages.push({ page, checks: ["out-of-bounds", "unintended-overlap", "font-substitution", "density"], finding_count: pageFindings.length });
   }
-  const screenshotEvidence = analyzeScreenshotEvidence(project, assetPlacements, options);
+  const onlineMode = project.project?.delivery_mode === ONLINE_LECTURE_MODE;
+  const screenshotEvidence = analyzeScreenshotEvidence(project, assetPlacements, { ...options, ...(onlineMode ? { downscaledViews: [720] } : {}) });
   findings.push(...screenshotEvidence.findings);
+  let onlineLecture;
+  if (onlineMode) {
+    const settings = onlineLectureSettings(project);
+    onlineLecture = analyzeOnlineLecture(onlinePages, { safeZones: settings.safe_zones, legibility: settings.legibility });
+    findings.push(...onlineLecture.findings);
+  }
   for (const page of pages) {
     page.checks.push("screenshot-evidence");
+    if (onlineMode) page.checks.push("online-safe-zones", "online-720p-legibility");
     page.finding_count = findings.filter((item) => item.page === page.page).length;
   }
-  return { pages, findings, screenshot_evidence: screenshotEvidence };
+  return { pages, findings, screenshot_evidence: screenshotEvidence, ...(onlineLecture ? { online_lecture: onlineLecture } : {}) };
 }
 
-export async function renderPresentation({ pptxFile, evidenceDir, commands = defaultCommands() }) {
+export async function renderPresentation({ pptxFile, evidenceDir, commands = defaultCommands(), downscaleHeights = [] }) {
   const output = path.resolve(evidenceDir);
   await fs.mkdir(output, { recursive: true });
   const pdfFile = path.join(output, "slides.pdf");
@@ -107,7 +121,19 @@ export async function renderPresentation({ pptxFile, evidenceDir, commands = def
       montage = path.join(output, "montage.png");
       await commands.exec(commands.magick, [...images, "-thumbnail", "480x270", "+append", montage]);
     }
-    return { status: "rendered", renderer, pdf_file: pdfFile, page_images: images, montage_file: montage };
+    const downscaledViews = [];
+    for (const height of downscaleHeights) {
+      if (!await exists(commands.magick)) { downscaledViews.push({ height, status: "unavailable", reason: "ImageMagick is unavailable", page_images: [] }); continue; }
+      const width = Math.round(height * 16 / 9);
+      const scaled = [];
+      for (const [index, image] of images.entries()) {
+        const target = path.join(output, `page-${height}p-${index + 1}.png`);
+        await commands.exec(commands.magick, [image, "-resize", `${width}x${height}!`, target]);
+        scaled.push(target);
+      }
+      downscaledViews.push({ height, width, status: "rendered", page_images: scaled });
+    }
+    return { status: "rendered", renderer, pdf_file: pdfFile, page_images: images, montage_file: montage, ...(downscaleHeights.length ? { downscaled_views: downscaledViews } : {}) };
   } catch (error) {
     return degradedRendering(`rendering failed: ${error.message}`, renderer);
   }

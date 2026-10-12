@@ -17,13 +17,13 @@ const VISUAL_ASSET_COMMANDS = new Set(["visual-asset-prepare", "visual-asset-ing
 const HELP = `PPT-Ops 1.0
 
 Usage:
-  pptops init <project-dir> [--name <id>] [--title <title>] [--delivery-mode <live_talk|workshop|pitch|leave_behind|async>] [--accessibility-profile <json>]
+  pptops init <project-dir> [--name <id>] [--title <title>] [--delivery-mode <live_talk|workshop|pitch|leave_behind|async|online_lecture>] [--accessibility-profile <json>]
   pptops migrate <foundation-project-dir> --to <v1-project-dir>
   pptops import <project-dir> --file <markdown|docx|pptx>
   pptops visual-preference <repository-root> --action <inspect|nominate|observe|propose|feedback|decide|revise|remove> [--payload <json>]
   pptops design-context <project-dir> [--repository-root <path>]
   pptops validate <project-dir>
-  pptops html-qa <html-file> [--browser <path>] [--timeout <ms>]
+  pptops html-qa <html-file> [--browser <path>] [--timeout <ms>] [--safe-zones <tencent_meeting,zoom,feishu,replay_captions>]
   pptops accessibility-remediate <project-dir> --payload <json>
   pptops accessibility-audit <project-dir> [--build <id> | --html-file <file> --pptx-file <file>]
   pptops intake <project-dir>
@@ -32,6 +32,7 @@ Usage:
   pptops build <project-dir> [--format html|pptx|all]
   pptops review <project-dir>
   pptops delivery-retro <project-dir> --record <delivery-record.json>
+  pptops script-review <project-dir> [--baseline <script-review.json>]
   pptops handoff <project-dir> --formats <html,pptx> --actor <user>
   pptops deliver <project-dir> --formats <html,pptx> --actor <user>
   pptops candidate-propose <project-dir> --target-kind <kind> --target-id <id> --patch <json> --base-revision <n> [--parent-candidate <id>] [--hypothesis <text>]
@@ -98,7 +99,14 @@ try {
     if (!projectDir || projectDir.startsWith("--")) throw new Error("html-qa requires <html-file>");
     const options = parseOptions(argv.slice(2));
     const { inspectHtmlPresentation } = await import("./qa/html.js");
-    const result = await inspectHtmlPresentation({ htmlFile: projectDir, browserPath: options.browser, timeoutMs: options.timeout ? positiveInteger(options.timeout, "timeout") : undefined });
+    let onlineLecture;
+    if (options["safe-zones"] !== undefined) {
+      const { ONLINE_LECTURE_LEGIBILITY, SAFE_ZONE_PRESET_NAMES, resolveSafeZones } = await import("./contracts/online-lecture.js");
+      const presets = String(options["safe-zones"]).split(",").map((value) => value.trim()).filter(Boolean);
+      for (const preset of presets) if (!SAFE_ZONE_PRESET_NAMES.includes(preset)) throw new Error(`--safe-zones preset is invalid: ${preset}`);
+      onlineLecture = { safeZones: resolveSafeZones(presets.map((preset) => ({ preset }))), legibility: ONLINE_LECTURE_LEGIBILITY };
+    }
+    const result = await inspectHtmlPresentation({ htmlFile: projectDir, browserPath: options.browser, timeoutMs: options.timeout ? positiveInteger(options.timeout, "timeout") : undefined, onlineLecture });
     console.log(JSON.stringify({ command, ...result }, null, 2));
     if (result.status !== "passed") process.exitCode = 1;
   } else {
@@ -180,6 +188,8 @@ try {
       console.log(JSON.stringify({ command, project: project.project.name, ...await importDeliveryRecord(project, required(options, "record")) }, null, 2));
     } else if (command === "review") {
       await runReview(project);
+    } else if (command === "script-review") {
+      await runScriptReview(project, options);
     } else if (command === "handoff") {
       await runHandoff(project, options);
     } else if (command === "deliver") {
@@ -290,6 +300,25 @@ async function runReview(project) {
   if (!report.passed) process.exitCode = 1;
 }
 
+async function runScriptReview(project, options) {
+  const { SCRIPT_REVIEW_JSON, SCRIPT_REVIEW_MARKDOWN, renderScriptReviewMarkdown, reviewSpeakerScript } = await import("./qa/speaker-script.js");
+  let baseline;
+  if (options.baseline) {
+    try { baseline = JSON.parse(await fs.readFile(options.baseline, "utf8")); }
+    catch (cause) { const error = new Error("--baseline must be a readable script-review.json"); error.code = "OPTION_INVALID"; error.cause = cause; throw error; }
+    if (baseline?.kind !== "speaker_script_review") { const error = new Error("--baseline must be a script-review.json produced by script-review"); error.code = "OPTION_INVALID"; throw error; }
+  }
+  const review = reviewSpeakerScript(project, { baseline, includeScript: true, force: true });
+  const directory = outputDir(project);
+  await fs.mkdir(directory, { recursive: true });
+  const reportFile = path.join(directory, SCRIPT_REVIEW_JSON);
+  const markdownFile = path.join(directory, SCRIPT_REVIEW_MARKDOWN);
+  await fs.writeFile(reportFile, `${JSON.stringify(review, null, 2)}\n`);
+  await fs.writeFile(markdownFile, renderScriptReviewMarkdown(review));
+  console.log(JSON.stringify({ command: "script-review", ...review, report_file: reportFile, markdown_file: markdownFile }, null, 2));
+  if (review.status !== "passed") process.exitCode = 1;
+}
+
 async function runHandoff(project, options) {
   const boundaryImages = await assertBoundaryGeneratedImages(project);
   const { recordDeliverySelection } = await import("./delivery/selection.js");
@@ -334,7 +363,7 @@ function parseOptions(args) {
     const value = args[index + 1];
     if (!key?.startsWith("--") || value === undefined || value.startsWith("--")) throw new Error(`invalid option: ${key ?? ""}`.trim());
     const name = key.slice(2);
-    if (!["action", "payload", "repository-root", "name", "title", "delivery-mode", "accessibility-profile", "html-file", "pptx-file", "pages", "format", "to", "file", "target-kind", "target-id", "page-id", "new-source", "patch", "base-revision", "candidate", "expected-revision", "parent-candidate", "hypothesis", "reconstruction", "status", "raw-feedback", "findings", "left-candidate", "right-candidate", "version", "variant", "targets", "build", "review", "decision", "evidence", "source", "source-revision", "selection-source", "selection", "approval", "artifact", "formats", "data-root", "brief", "response", "brief-id", "provider", "model", "mime", "generation", "actor", "verdict", "checks", "notes", "asset-id", "page-id", "slot-role", "alt", "fit", "browser", "timeout", "record"].includes(name)) throw new Error(`unknown option: ${key}`);
+    if (!["action", "payload", "repository-root", "name", "title", "delivery-mode", "accessibility-profile", "html-file", "pptx-file", "pages", "format", "to", "file", "target-kind", "target-id", "page-id", "new-source", "patch", "base-revision", "candidate", "expected-revision", "parent-candidate", "hypothesis", "reconstruction", "status", "raw-feedback", "findings", "left-candidate", "right-candidate", "version", "variant", "targets", "build", "review", "decision", "evidence", "source", "source-revision", "selection-source", "selection", "approval", "artifact", "formats", "data-root", "brief", "response", "brief-id", "provider", "model", "mime", "generation", "actor", "verdict", "checks", "notes", "asset-id", "page-id", "slot-role", "alt", "fit", "browser", "timeout", "baseline", "safe-zones", "record"].includes(name)) throw new Error(`unknown option: ${key}`);
     options[name] = value;
   }
   return options;

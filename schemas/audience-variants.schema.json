@@ -19,7 +19,7 @@
           "audience": { "type": "string", "minLength": 1 },
           "purpose": { "type": "string", "minLength": 1 },
           "expected_duration_seconds": { "type": "integer", "minimum": 1 },
-          "delivery_mode": { "enum": ["live_talk", "workshop", "pitch", "leave_behind", "async"] },
+          "delivery_mode": { "enum": ["live_talk", "workshop", "pitch", "leave_behind", "async", "online_lecture"] },
           "base": {
             "type": "object",
             "required": ["project_id", "revision"],

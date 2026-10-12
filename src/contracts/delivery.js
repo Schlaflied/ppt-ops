@@ -1,4 +1,6 @@
-export const DELIVERY_MODES = Object.freeze(["live_talk", "workshop", "pitch", "leave_behind", "async"]);
+import { ONLINE_LECTURE_LEGIBILITY, ONLINE_LECTURE_MODE, inspectInteractionCadence, onlineLectureSettings } from "./online-lecture.js";
+
+export const DELIVERY_MODES = Object.freeze(["live_talk", "workshop", "pitch", "leave_behind", "async", "online_lecture"]);
 export const INTERACTION_KINDS = Object.freeze(["audience_action", "question", "exercise", "demonstration", "feedback"]);
 
 export const DEFAULT_DENSITY_GUIDANCE = Object.freeze({ character_limit: 700, shape_limit: 60 });
@@ -7,7 +9,16 @@ export const DELIVERY_MODE_DENSITY_GUIDANCE = Object.freeze({
   workshop: Object.freeze({ character_limit: 520, shape_limit: 54 }),
   pitch: Object.freeze({ character_limit: 360, shape_limit: 44 }),
   leave_behind: DEFAULT_DENSITY_GUIDANCE,
-  async: Object.freeze({ character_limit: 620, shape_limit: 58 })
+  async: Object.freeze({ character_limit: 620, shape_limit: 58 }),
+  // Screen sharing compresses and occludes the slide, so online lectures get
+  // less copy than live_talk and a larger minimum body size (see online-lecture.js).
+  online_lecture: Object.freeze({
+    character_limit: 300,
+    shape_limit: 40,
+    minimum_body_font_px: ONLINE_LECTURE_LEGIBILITY.minimum_body_font_px,
+    minimum_stroke_px: ONLINE_LECTURE_LEGIBILITY.minimum_stroke_px,
+    minimum_contrast_ratio: ONLINE_LECTURE_LEGIBILITY.minimum_contrast_ratio
+  })
 });
 
 export function densityGuidanceFor(deliveryMode) {
@@ -56,14 +67,36 @@ export function inspectDeliveryModeFit(project) {
     });
   }
 
+  let onlineLecture;
+  if (deliveryMode === ONLINE_LECTURE_MODE) {
+    const settings = onlineLectureSettings(project);
+    const cadence = inspectInteractionCadence(pages, { intervalMinutes: settings.interaction_interval_minutes });
+    findings.push(...cadence.findings);
+    if (!settings.safe_zones_declared) {
+      findings.push({
+        page: null,
+        check: "online-lecture-safe-zones-undeclared",
+        severity: "note",
+        evidence: { delivery_mode: deliveryMode, reason: "Project declares no safe_zones; occlusion checks only run against declared zones or presets." }
+      });
+    }
+    onlineLecture = {
+      interaction_interval_minutes: settings.interaction_interval_minutes,
+      total_estimated_seconds: cadence.total_estimated_seconds,
+      safe_zones: settings.safe_zones
+    };
+  }
+  const blocking = findings.filter(({ severity }) => severity !== "note");
+
   return {
-    status: findings.length === 0 ? "passed" : "failed",
+    status: blocking.length === 0 ? "passed" : "failed",
     delivery_mode: deliveryMode,
     guidance,
+    ...(onlineLecture ? { online_lecture: onlineLecture } : {}),
     findings,
-    summary: findings.length === 0
+    summary: blocking.length === 0
       ? `PageSpecs fit the automated ${deliveryMode} guidance.`
-      : `${findings.length} delivery-mode guidance finding(s) require review.`
+      : `${blocking.length} delivery-mode guidance finding(s) require review.`
   };
 }
 
