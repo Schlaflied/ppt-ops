@@ -9,6 +9,7 @@ import { auditAccessibilityArtifacts } from "../accessibility/artifacts.js";
 import { evaluateFactLedger } from "../facts/ledger.js";
 import { citationReviewEvidence } from "../citations/manifest.js";
 import { inspectContentConsistency } from "../qa/content-consistency.js";
+import { inspectDeliveryFeedback } from "../delivery/retro.js";
 
 export const REVIEW_REPORT_FILE = "review-report.json";
 
@@ -55,6 +56,8 @@ export async function reviewProject(project, options = {}) {
       evidence: deliveryModeFit
     }
   ];
+  const deliveryFeedback = inspectDeliveryFeedback(project);
+  if (deliveryFeedback) automatedChecks.push(deliveryFeedback);
   if (project.factLedger) {
     const evidence = evaluateFactLedger(project.factLedger, {
       at: options.factLedgerEvaluatedAt ?? new Date().toISOString(),

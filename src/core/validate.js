@@ -1,6 +1,6 @@
 import { validateDiagram } from "../layout/diagram.js";
 import { validateV1Bundle } from "../contracts/v1.js";
-import { DELIVERY_MODES, INTERACTION_KINDS } from "../contracts/delivery.js";
+import { DELIVERY_MODES, INTERACTION_KINDS, validateDeliveryFeedback } from "../contracts/delivery.js";
 import { validateAccessibilityProfile } from "../accessibility/index.js";
 import { validateFactLedger } from "../facts/ledger.js";
 
@@ -148,6 +148,7 @@ function validateDeliveryFields(page, errors) {
   }
   if (page.speaker_notes !== undefined && !hasText(page.speaker_notes)) errors.push("speaker_notes must be a non-empty string");
   if (page.speaker_note_intent !== undefined && !hasText(page.speaker_note_intent)) errors.push("speaker_note_intent must be a non-empty string");
+  errors.push(...validateDeliveryFeedback(page.delivery_feedback));
   if (page.audience_interaction !== undefined) {
     if (!page.audience_interaction || typeof page.audience_interaction !== "object" || Array.isArray(page.audience_interaction)) errors.push("audience_interaction must be an object");
     else {

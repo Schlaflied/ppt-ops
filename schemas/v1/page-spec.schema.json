@@ -47,6 +47,7 @@
           "description": "Planning estimate only; not evidence of rehearsed timing."
         },
         "speaker_notes": { "type": "string", "minLength": 1, "description": "Authored off-slide speaker notes. Never visible slide copy." },
+        "delivery_feedback": { "$ref": "../delivery-feedback.schema.json" },
         "speaker_note_intent": {
           "type": "string",
           "minLength": 1,

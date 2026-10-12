@@ -25,6 +25,7 @@
     "visual_job": { "type": "string", "minLength": 1 },
     "estimated_duration_seconds": { "type": "integer", "minimum": 1, "description": "Planning estimate only; not evidence of rehearsed timing." },
     "speaker_notes": { "type": "string", "minLength": 1, "description": "Authored off-slide speaker notes. Never visible slide copy." },
+    "delivery_feedback": { "$ref": "delivery-feedback.schema.json" },
     "speaker_note_intent": { "type": "string", "minLength": 1, "description": "Purpose of off-slide speaker support; never visible slide copy." },
     "audience_interaction": {
       "type": "object",
