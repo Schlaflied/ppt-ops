@@ -36,6 +36,8 @@ test("rendered deck exposes discoverable live hotkeys and controls", async () =>
   assert.match(html, /<div class="keymap" hidden role="dialog"[\s\S]*<dt>B<\/dt><dd>Blackout \/ restore screen<\/dd>/);
   assert.match(html, /<dt>I \/ G<\/dt>/);
   assert.match(html, /<dt>N<\/dt><dd>Open presenter view<\/dd>/);
+  assert.match(html, /<div class="presenter-keys"><h3>Presenter window<\/h3><dl><dt>!<\/dt><dd>Mark slide: hard to deliver/);
+  assert.match(html, /<dt>E<\/dt><dd>Export delivery record \(JSON\)<\/dd>/);
   assert.match(html, /<div class="blackout" hidden/);
   assert.match(html, /view === "presenter"/);
   assert.match(html, /new BroadcastChannel\(storageKey\)/);
@@ -57,7 +59,7 @@ test("deck key resolver maps live keys without clobbering fullscreen or typing",
 });
 
 test("sync message format is versioned, deck-scoped and validated", () => {
-  assert.deepEqual(SYNC_ACTIONS, ["hello", "state", "go", "blackout", "timer"]);
+  assert.deepEqual(SYNC_ACTIONS, ["hello", "state", "go", "blackout", "timer", "record"]);
   const timer = { running: true, started_at: 1000, accumulated_ms: 0 };
   const message = createSyncMessage("deck1", "a", 3, "state", { index: 2, count: 5, blackout: true, timer });
   assert.deepEqual(Object.keys(message), ["protocol", "version", "deck", "sender", "seq", "action", "index", "count", "blackout", "timer", "sent_at"]);
@@ -97,6 +99,8 @@ test("presenter remaining time uses talk budget, else summed estimates, else non
   const estimated = runtimeConfig((await deckWithNotes()).html);
   assert.deepEqual(estimated.budget, { seconds: 180, source: "page_estimates" });
   assert.deepEqual(estimated.estimates, [60, 120]);
+  assert.deepEqual(estimated.pages.map((page) => page.page), [1, 2]);
+  assert.deepEqual(estimated.rehearsed, [null, null], "no delivery recorded yet");
   assert.match(estimated.deck_id, /^[0-9a-z]+$/);
   const budgeted = runtimeConfig((await deckWithNotes((project) => { project.project.talk_budget = { total_minutes: 20 }; })).html);
   assert.deepEqual(budgeted.budget, { seconds: 1200, source: "talk_budget" });

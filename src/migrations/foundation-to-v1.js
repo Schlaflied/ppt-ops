@@ -45,7 +45,8 @@ export async function migrateFoundationProject(projectDir) {
       ...(page.speaker_note_intent ? { speaker_note_intent: page.speaker_note_intent } : {}),
       ...(page.script_role ? { script_role: page.script_role } : {}),
       ...(page.merged_with ? { merged_with: structuredClone(page.merged_with) } : {}),
-      ...(page.audience_interaction ? { audience_interaction: page.audience_interaction } : {})
+      ...(page.audience_interaction ? { audience_interaction: page.audience_interaction } : {}),
+      ...(page.delivery_feedback ? { delivery_feedback: structuredClone(page.delivery_feedback) } : {})
     });
   });
   const outline = entity("outline", "outline-main", { sections: [{ id: "section-main", title: legacyProject.title, page_ids: pages.map(({ id }) => id) }] });

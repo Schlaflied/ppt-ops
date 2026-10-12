@@ -31,6 +31,7 @@ Usage:
   pptops prototype <project-dir> [--pages <list>]
   pptops build <project-dir> [--format html|pptx|all]
   pptops review <project-dir>
+  pptops delivery-retro <project-dir> --record <delivery-record.json>
   pptops script-review <project-dir> [--baseline <script-review.json>]
   pptops handoff <project-dir> --formats <html,pptx,handout> --actor <user> [--handout-editions <speaker,audience>]
   pptops deliver <project-dir> --formats <html,pptx,handout> --actor <user> [--handout-editions <speaker,audience>]
@@ -182,6 +183,9 @@ try {
       console.log(JSON.stringify({ command, pages: pages.map(({ page, three_second_message, visual_job }) => ({ page, three_second_message, visual_job })) }, null, 2));
     } else if (command === "build") {
       console.log(JSON.stringify({ command, project: project.project.name, outputs: await buildFormats(project, resolveFormats(required(options, "format"))) }, null, 2));
+    } else if (command === "delivery-retro") {
+      const { importDeliveryRecord } = await import("./delivery/retro.js");
+      console.log(JSON.stringify({ command, project: project.project.name, ...await importDeliveryRecord(project, required(options, "record")) }, null, 2));
     } else if (command === "review") {
       await runReview(project);
     } else if (command === "script-review") {
@@ -374,7 +378,7 @@ function parseOptions(args) {
     const value = args[index + 1];
     if (!key?.startsWith("--") || value === undefined || value.startsWith("--")) throw new Error(`invalid option: ${key ?? ""}`.trim());
     const name = key.slice(2);
-    if (!["action", "payload", "repository-root", "name", "title", "delivery-mode", "accessibility-profile", "html-file", "pptx-file", "pages", "format", "to", "file", "target-kind", "target-id", "page-id", "new-source", "patch", "base-revision", "candidate", "expected-revision", "parent-candidate", "hypothesis", "reconstruction", "status", "raw-feedback", "findings", "left-candidate", "right-candidate", "version", "variant", "targets", "build", "review", "decision", "evidence", "source", "source-revision", "selection-source", "selection", "approval", "artifact", "formats", "data-root", "brief", "response", "brief-id", "provider", "model", "mime", "generation", "actor", "verdict", "checks", "notes", "asset-id", "page-id", "slot-role", "alt", "fit", "browser", "timeout", "baseline", "handout-editions", "safe-zones"].includes(name)) throw new Error(`unknown option: ${key}`);
+    if (!["action", "payload", "repository-root", "name", "title", "delivery-mode", "accessibility-profile", "html-file", "pptx-file", "pages", "format", "to", "file", "target-kind", "target-id", "page-id", "new-source", "patch", "base-revision", "candidate", "expected-revision", "parent-candidate", "hypothesis", "reconstruction", "status", "raw-feedback", "findings", "left-candidate", "right-candidate", "version", "variant", "targets", "build", "review", "decision", "evidence", "source", "source-revision", "selection-source", "selection", "approval", "artifact", "formats", "data-root", "brief", "response", "brief-id", "provider", "model", "mime", "generation", "actor", "verdict", "checks", "notes", "asset-id", "page-id", "slot-role", "alt", "fit", "browser", "timeout", "baseline", "safe-zones", "record", "handout-editions"].includes(name)) throw new Error(`unknown option: ${key}`);
     options[name] = value;
   }
   return options;

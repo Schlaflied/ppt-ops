@@ -16,7 +16,7 @@ The User Layer must never be included in the system update set:
 - `templates/user/`
 - the resolved Data Root and every project, source, asset, version, build, review, handoff, and archive below it
 
-The Project Layer is one relative child of the Data Root. Project identifiers and write targets must be relative, contained paths. Absolute project paths, `..` segments, path escape, and System/User overlap are contract errors.
+The Project Layer is one relative child of the Data Root. Delivery records and retro reports imported by `pptops delivery-retro` live in the project's `deliveries/` directory and belong to the Project Layer. Project identifiers and write targets must be relative, contained paths. Absolute project paths, `..` segments, path escape, and System/User overlap are contract errors.
 
 ## Data Root resolution
 
