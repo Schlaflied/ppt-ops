@@ -43,6 +43,8 @@ export async function migrateFoundationProject(projectDir) {
       ...(page.estimated_duration_seconds ? { estimated_duration_seconds: page.estimated_duration_seconds } : {}),
       ...(page.speaker_notes !== undefined ? { speaker_notes: page.speaker_notes } : {}),
       ...(page.speaker_note_intent ? { speaker_note_intent: page.speaker_note_intent } : {}),
+      ...(page.script_role ? { script_role: page.script_role } : {}),
+      ...(page.merged_with ? { merged_with: structuredClone(page.merged_with) } : {}),
       ...(page.audience_interaction ? { audience_interaction: page.audience_interaction } : {})
     });
   });
@@ -54,7 +56,9 @@ export async function migrateFoundationProject(projectDir) {
     asset_ids: assets.map(({ id }) => id),
     ...(legacyProject.delivery_mode ? { delivery_mode: legacyProject.delivery_mode } : {}),
     ...(legacyProject.safe_zones ? { safe_zones: structuredClone(legacyProject.safe_zones) } : {}),
-    ...(legacyProject.interaction_interval_minutes !== undefined ? { interaction_interval_minutes: legacyProject.interaction_interval_minutes } : {})
+    ...(legacyProject.interaction_interval_minutes !== undefined ? { interaction_interval_minutes: legacyProject.interaction_interval_minutes } : {}),
+    ...(legacyProject.talk_budget ? { talk_budget: structuredClone(legacyProject.talk_budget) } : {}),
+    ...(legacyProject.script_review ? { script_review: structuredClone(legacyProject.script_review) } : {})
   });
   const bundle = { project, sources, outline, pages, theme, assets, templates: [], candidates: [], approvals: [], versions: [], builds: [], reviews: [], handoffs: [] };
   const errors = validateV1Bundle(bundle);

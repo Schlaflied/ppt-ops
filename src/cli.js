@@ -31,6 +31,7 @@ Usage:
   pptops prototype <project-dir> [--pages <list>]
   pptops build <project-dir> [--format html|pptx|all]
   pptops review <project-dir>
+  pptops script-review <project-dir> [--baseline <script-review.json>]
   pptops handoff <project-dir> --formats <html,pptx> --actor <user>
   pptops deliver <project-dir> --formats <html,pptx> --actor <user>
   pptops candidate-propose <project-dir> --target-kind <kind> --target-id <id> --patch <json> --base-revision <n> [--parent-candidate <id>] [--hypothesis <text>]
@@ -183,6 +184,8 @@ try {
       console.log(JSON.stringify({ command, project: project.project.name, outputs: await buildFormats(project, resolveFormats(required(options, "format"))) }, null, 2));
     } else if (command === "review") {
       await runReview(project);
+    } else if (command === "script-review") {
+      await runScriptReview(project, options);
     } else if (command === "handoff") {
       await runHandoff(project, options);
     } else if (command === "deliver") {
@@ -293,6 +296,25 @@ async function runReview(project) {
   if (!report.passed) process.exitCode = 1;
 }
 
+async function runScriptReview(project, options) {
+  const { SCRIPT_REVIEW_JSON, SCRIPT_REVIEW_MARKDOWN, renderScriptReviewMarkdown, reviewSpeakerScript } = await import("./qa/speaker-script.js");
+  let baseline;
+  if (options.baseline) {
+    try { baseline = JSON.parse(await fs.readFile(options.baseline, "utf8")); }
+    catch (cause) { const error = new Error("--baseline must be a readable script-review.json"); error.code = "OPTION_INVALID"; error.cause = cause; throw error; }
+    if (baseline?.kind !== "speaker_script_review") { const error = new Error("--baseline must be a script-review.json produced by script-review"); error.code = "OPTION_INVALID"; throw error; }
+  }
+  const review = reviewSpeakerScript(project, { baseline, includeScript: true, force: true });
+  const directory = outputDir(project);
+  await fs.mkdir(directory, { recursive: true });
+  const reportFile = path.join(directory, SCRIPT_REVIEW_JSON);
+  const markdownFile = path.join(directory, SCRIPT_REVIEW_MARKDOWN);
+  await fs.writeFile(reportFile, `${JSON.stringify(review, null, 2)}\n`);
+  await fs.writeFile(markdownFile, renderScriptReviewMarkdown(review));
+  console.log(JSON.stringify({ command: "script-review", ...review, report_file: reportFile, markdown_file: markdownFile }, null, 2));
+  if (review.status !== "passed") process.exitCode = 1;
+}
+
 async function runHandoff(project, options) {
   const boundaryImages = await assertBoundaryGeneratedImages(project);
   const { recordDeliverySelection } = await import("./delivery/selection.js");
@@ -337,7 +359,7 @@ function parseOptions(args) {
     const value = args[index + 1];
     if (!key?.startsWith("--") || value === undefined || value.startsWith("--")) throw new Error(`invalid option: ${key ?? ""}`.trim());
     const name = key.slice(2);
-    if (!["action", "payload", "repository-root", "name", "title", "delivery-mode", "accessibility-profile", "html-file", "pptx-file", "pages", "format", "to", "file", "target-kind", "target-id", "page-id", "new-source", "patch", "base-revision", "candidate", "expected-revision", "parent-candidate", "hypothesis", "reconstruction", "status", "raw-feedback", "findings", "left-candidate", "right-candidate", "version", "variant", "targets", "build", "review", "decision", "evidence", "source", "source-revision", "selection-source", "selection", "approval", "artifact", "formats", "data-root", "brief", "response", "brief-id", "provider", "model", "mime", "generation", "actor", "verdict", "checks", "notes", "asset-id", "page-id", "slot-role", "alt", "fit", "browser", "timeout", "safe-zones"].includes(name)) throw new Error(`unknown option: ${key}`);
+    if (!["action", "payload", "repository-root", "name", "title", "delivery-mode", "accessibility-profile", "html-file", "pptx-file", "pages", "format", "to", "file", "target-kind", "target-id", "page-id", "new-source", "patch", "base-revision", "candidate", "expected-revision", "parent-candidate", "hypothesis", "reconstruction", "status", "raw-feedback", "findings", "left-candidate", "right-candidate", "version", "variant", "targets", "build", "review", "decision", "evidence", "source", "source-revision", "selection-source", "selection", "approval", "artifact", "formats", "data-root", "brief", "response", "brief-id", "provider", "model", "mime", "generation", "actor", "verdict", "checks", "notes", "asset-id", "page-id", "slot-role", "alt", "fit", "browser", "timeout", "baseline", "safe-zones"].includes(name)) throw new Error(`unknown option: ${key}`);
     options[name] = value;
   }
   return options;

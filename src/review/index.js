@@ -10,6 +10,7 @@ import { auditAccessibilityArtifacts } from "../accessibility/artifacts.js";
 import { evaluateFactLedger } from "../facts/ledger.js";
 import { citationReviewEvidence } from "../citations/manifest.js";
 import { inspectContentConsistency } from "../qa/content-consistency.js";
+import { reviewSpeakerScript } from "../qa/speaker-script.js";
 
 export const REVIEW_REPORT_FILE = "review-report.json";
 
@@ -56,6 +57,8 @@ export async function reviewProject(project, options = {}) {
       evidence: deliveryModeFit
     }
   ];
+  const speakerScript = reviewSpeakerScript(project);
+  if (speakerScript) automatedChecks.push({ id: "speaker-script-review", kind: "automated", required: false, status: speakerScript.status, evidence: speakerScript });
   if (project.factLedger) {
     const evidence = evaluateFactLedger(project.factLedger, {
       at: options.factLedgerEvaluatedAt ?? new Date().toISOString(),
