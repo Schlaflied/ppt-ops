@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { validateSemanticRegistry } from "../src/semantic-consistency/registry.js";
 import { validateSemanticBindings } from "../src/semantic-consistency/bindings.js";
+import { checkSemanticConsistency } from "../src/semantic-consistency/check.js";
 
 const registryInput = () => ({ contract_version: "1.0", entities: [
   { id: "lo.hazard-identification", type: "learning_objective", revision: 1, canonical_value: "Identify hazards before work begins", authority: { source_id: "curriculum-approved", locator: "LO-1" } },
@@ -15,6 +16,22 @@ test("Stage 1 validates stable shared semantics without resolving conflicts", ()
   assert.deepEqual(result.findings, [{ code: "SEMANTIC_VARIANT_CONFLICT", severity: "blocking", entity_id: "risk.high", observed: "Report when practical", expected: "Stop work and report immediately", resolution: "human_required" }]);
   assert.throws(() => validateSemanticRegistry({ contract_version: "1.0", entities: [{ ...registryInput().entities[0], authority: null }] }), { code: "SEMANTIC_AUTHORITY_REQUIRED" });
   assert.throws(() => validateSemanticRegistry({ contract_version: "1.0", entities: [registryInput().entities[0], registryInput().entities[0]] }), { code: "SEMANTIC_ENTITY_DUPLICATE" });
+});
+
+test("Stage 3 reports conflict, omission, location, original text, and expected value", () => {
+  const { registry } = validateSemanticRegistry(registryInput());
+  const manifest = validateSemanticBindings(registry, [
+    { id: "deck", role: "presentation", format: "pptx", bindings: [{ entity_id: "risk.high", entity_revision: 2, locator: { kind: "slide", number: 5 }, observed_text: "Stop work and report immediately" }] },
+    { id: "guide", role: "learner_guide", format: "docx", bindings: [{ entity_id: "risk.high", entity_revision: 1, locator: { kind: "section", id: "risk-table" }, observed_text: "Report when practical" }] }
+  ]);
+  const report = checkSemanticConsistency(registry, manifest, [{ entity_id: "risk.high", required_roles: ["presentation", "learner_guide", "assessment"] }]);
+  assert.equal(report.passed, false);
+  assert.equal(report.automated_resolution, false);
+  assert.deepEqual(report.findings.map((item) => item.code), ["SEMANTIC_BINDING_MISSING", "SEMANTIC_BINDING_STALE", "SEMANTIC_ONE_TO_MANY_CONFLICT", "SEMANTIC_VALUE_MISMATCH"]);
+  const mismatch = report.findings.find((item) => item.code === "SEMANTIC_VALUE_MISMATCH");
+  assert.deepEqual(mismatch.locator, { kind: "section", id: "risk-table" });
+  assert.equal(mismatch.observed, "Report when practical");
+  assert.equal(mismatch.expected, "Stop work and report immediately");
 });
 
 test("Stage 2 binds format-specific locators to stable semantic IDs", () => {
