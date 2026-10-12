@@ -1,5 +1,6 @@
 import crypto from "node:crypto";
 import fs from "node:fs/promises";
+import zlib from "node:zlib";
 import JSZip from "jszip";
 
 /**
@@ -29,22 +30,28 @@ export async function inspectContentConsistency({ htmlFile, pptxFile, buildRevis
         pptx_page: pptx?.page ?? null
       }));
     } else {
-      for (const field of ["title", "message", "task", "visual_job"]) {
-        const left = html.fields[field] ?? [];
-        const right = pptx.fields[field] ?? [];
-        // Boundary slides intentionally omit the footer in HTML. Some PPTX
-        // producers retain footer text in the source artifact; this is a
-        // declared format difference, not a semantic content loss.
-        if (html.boundary && ["task", "visual_job"].includes(field) && !left.length && right.length) continue;
-        if (normalizeList(left).join("\n") !== normalizeList(right).join("\n")) {
-          pageFindings.push(finding("field-mismatch", sensitiveField(field) ? "blocking" : "major", {
-            field, html: left, pptx: right, normalized_html: normalizeList(left), normalized_pptx: normalizeList(right)
-          }));
-        }
+      const htmlTitle = normalizeList(html.fields.title);
+      const pptxTitle = normalizeList(pptx.fields.title);
+      if (htmlTitle.join("\n") !== pptxTitle.join("\n")) {
+        pageFindings.push(finding("field-mismatch", "blocking", { field: "title", html: html.fields.title, pptx: pptx.fields.title, normalized_html: htmlTitle, normalized_pptx: pptxTitle }));
       }
+      // HTML adds presentation chrome (slide number, task/visual-job footer) and may show the
+      // three-second message beside the body copy, while native PPTX renders the body (or the
+      // subtitle/message when there is no body). Compare what both renderers promise to carry:
+      // the primary copy must reach PPTX, and PPTX must not invent text the HTML page lacks.
+      const htmlText = normalizeText(html.text);
+      const pptxText = normalizeText(pptx.text);
+      const expected = normalizeList(html.fields.body.length ? html.fields.body : html.fields.subtitle.length ? html.fields.subtitle : html.fields.message_only);
+      const missing = expected.filter(value => !pptxText.includes(value));
+      if (missing.length) {
+        pageFindings.push(finding("field-mismatch", "blocking", { field: "message", html: expected, pptx: pptx.fields.content, missing_in_pptx: missing }));
+      }
+      const extra = normalizeList(pptx.fields.content).filter(value => !htmlText.includes(value));
+      if (extra.length) pageFindings.push(finding("pptx-extra-content", "major", { pptx: extra }));
       const htmlNumbers = extractSensitiveTokens(html.text);
       const pptxNumbers = extractSensitiveTokens(pptx.text);
-      if (JSON.stringify(htmlNumbers) !== JSON.stringify(pptxNumbers)) {
+      const expectedNumbers = extractSensitiveTokens([...html.fields.title, ...expected].join(" "));
+      if (pptxNumbers.some(token => !htmlNumbers.includes(token)) || expectedNumbers.some(token => !pptxNumbers.includes(token))) {
         pageFindings.push(finding("sensitive-token-mismatch", "blocking", {
           html: htmlNumbers, pptx: pptxNumbers
         }));
@@ -74,6 +81,68 @@ export async function inspectContentConsistency({ htmlFile, pptxFile, buildRevis
   };
 }
 
+/**
+ * Page-count consistency between a generated presentation HTML file and a PDF derived from it.
+ * Uses the same slide extraction as the HTML/PPTX check, so both checks agree on what a "page" is.
+ * `omitPages` lists HTML data-page values deliberately left out of the PDF (e.g. merged transitions).
+ */
+export async function inspectPdfPageConsistency({ htmlFile, pdfBytes, omitPages = [], id = "html-pdf-page-consistency" }) {
+  const htmlBytes = await fs.readFile(htmlFile);
+  const htmlPages = extractHtmlPages(htmlBytes.toString("utf8"));
+  const omitted = new Set(omitPages.map(Number));
+  const expected = htmlPages.filter(({ page }) => !omitted.has(page)).length;
+  const pdf = countPdfPages(pdfBytes);
+  const textLayer = pdfTextLayer(pdfBytes);
+  const findings = [];
+  if (pdf !== expected) findings.push({ ...finding("page-count-mismatch", "blocking", { html: htmlPages.length, omitted: [...omitted].sort((a, b) => a - b), expected, pdf }), page: null });
+  if (textLayer !== "present") findings.push({ ...finding("pdf-text-layer-missing", "major", { text_layer: textLayer }), page: null });
+  return {
+    id,
+    kind: "automated",
+    status: findings.length ? "failed" : "passed",
+    required: true,
+    scope: "page-count-and-text-layer",
+    artifacts: { html_file: htmlFile, html: sha256(htmlBytes), pdf: sha256(pdfBytes) },
+    page_count: { html: htmlPages.length, omitted: omitted.size, expected, pdf },
+    text_layer: textLayer,
+    findings,
+    limitations: [
+      "Counts PDF page objects and checks for embedded fonts and text-showing operators; it does not extract or compare the PDF text itself.",
+      "Does not compare pixels, geometry or fonts between HTML and PDF."
+    ],
+    checked_at: new Date().toISOString()
+  };
+}
+
+export function countPdfPages(bytes) {
+  const text = Buffer.from(bytes).toString("latin1");
+  const objects = (text.match(/\/Type\s*\/Page(?![a-zA-Z])/g) ?? []).length;
+  if (objects) return objects;
+  const counts = [...text.matchAll(/\/Count\s+(\d+)/g)].map(match => Number(match[1]));
+  return counts.length ? Math.max(...counts) : 0;
+}
+
+// A PDF "has a text layer" when it embeds fonts and at least one content stream shows text (BT ... Tf ... ET).
+// Rasterised pages (images only) fail this check, so a screenshot-only PDF cannot pass as selectable text.
+export function pdfTextLayer(bytes) {
+  const buffer = Buffer.from(bytes);
+  const text = buffer.toString("latin1");
+  if (!/\/Font\b/.test(text)) return "absent";
+  const pattern = /(?<!end)stream\r?\n/g;
+  let match;
+  while ((match = pattern.exec(text))) {
+    const start = match.index + match[0].length;
+    const end = text.indexOf("endstream", start);
+    if (end < 0) break;
+    const raw = buffer.subarray(start, end);
+    let content;
+    try { content = zlib.inflateSync(raw).toString("latin1"); } catch { content = raw.toString("latin1"); }
+    if (/\bBT\b[\s\S]*?\bTf\b[\s\S]*?\bET\b/.test(content)) return "present";
+    pattern.lastIndex = end + "endstream".length;
+  }
+  return "absent";
+}
+
 async function extractPptxPages(bytes) {
   const archive = await JSZip.loadAsync(bytes);
   const entries = Object.keys(archive.files)
@@ -84,24 +153,18 @@ async function extractPptxPages(bytes) {
     const texts = [...xml.matchAll(/<a:t(?:\s[^>]*)?>([\s\S]*?)<\/a:t>/g)].map(match => decodeXml(match[1]).trim()).filter(Boolean);
     const meaningful = texts.filter(text => text !== String(index + 1));
     const title = meaningful[0] ?? "";
-    const footer = meaningful.slice(-2);
-    const body = meaningful.slice(1, Math.max(1, meaningful.length - 2));
     return {
       page: index + 1,
       text: meaningful.join(" "),
       fields: {
         title: title ? [title] : [],
-        message: body.length ? body : [],
-        subtitle: [],
-        body: [],
-        task: footer[0] ? [footer[0]] : [],
-        visual_job: footer[1] ? [footer[1]] : []
+        content: meaningful.slice(1)
       }
     };
   }));
 }
 
-function extractHtmlPages(html) {
+export function extractHtmlPages(html) {
   return [...html.matchAll(/<section\b[^>]*class="[^"]*\bslide\b[^"]*"[^>]*data-page="([^"]+)"[^>]*>([\s\S]*?)<\/section>/gi)].map((match, index) => {
     const source = match[2];
     const field = key => [...source.matchAll(new RegExp(`<[^>]*data-reading-key="${key}"[^>]*>([\\s\\S]*?)<\\/[^>]+>`, "gi"))].map(item => decodeHtml(stripTags(item[1]))).filter(Boolean);
@@ -109,15 +172,13 @@ function extractHtmlPages(html) {
     const footer = source.match(/<footer\b[^>]*>([\s\S]*?)<\/footer>/i)?.[1] ?? "";
     const footerFields = [...footer.matchAll(/<span\b[^>]*>([\s\S]*?)<\/span>/gi)].map(item => decodeHtml(stripTags(item[1]))).filter(Boolean);
     const fields = {
-      title: field("title"), message, subtitle: field("subtitle"), body: field("body"),
+      title: field("title"), message, message_only: field("message"), subtitle: field("subtitle"), body: field("body"),
       task: footerFields.slice(0, 1), visual_job: footerFields.slice(1, 2)
     };
-    const text = decodeHtml(stripTags(source)).replace(/\s+/g, " ").trim();
-    return { page: Number(match[1]) || index + 1, boundary: /\bboundary-slide\b/i.test(match[0]), text, fields };
+    const text = decodeHtml(stripTags(source.replace(/<span\b[^>]*class="slide-number"[^>]*>[\s\S]*?<\/span>/gi, " "))).replace(/\s+/g, " ").trim();
+    return { page: Number(match[1]) || index + 1, text, fields };
   });
 }
-
-function sensitiveField(field) { return ["title", "message", "body"].includes(field); }
 
 function normalizeList(values) { return values.map(value => normalizeText(value)).filter(Boolean); }
 

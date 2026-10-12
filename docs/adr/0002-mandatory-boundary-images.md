@@ -1,6 +1,6 @@
 # ADR 0002: Mandatory generated visuals at deck boundaries
 
-- Status: Accepted
+- Status: Superseded by [ADR 0009](0009-optional-boundary-images.md)
 - Date: 2026-09-02
 
 ## Decision

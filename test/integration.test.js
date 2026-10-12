@@ -9,18 +9,16 @@ import { promisify } from "node:util";
 process.env.PPT_OPS_RENDER_QA = "0";
 import { validatePptx } from "../src/adapters/pptx.js";
 import { writeMigratedProject } from "../src/migrations/foundation-to-v1.js";
-import { seedAcceptedBoundaryImages } from "./support/accepted-boundaries.js";
 
 const execFileAsync = promisify(execFile);
 const cli = path.resolve("src/cli.js");
 const demo = path.resolve("examples/demo-project");
 
-test("a migrated deck with accepted boundary images builds both formats, reviews, and packages a handoff", async (t) => {
+test("a migrated deck builds both formats without mandatory boundary images, reviews, and packages a handoff", async (t) => {
   const temporary = await fs.mkdtemp(path.join(os.tmpdir(), "pptops-integration-"));
   t.after(() => fs.rm(temporary, { recursive: true, force: true }));
   const project = path.join(temporary, "demo-project");
   await writeMigratedProject(demo, project);
-  await seedAcceptedBoundaryImages(project);
 
   const cleanReview = JSON.parse((await runCli("review", project)).stdout);
   assert.equal(cleanReview.passed, true);
@@ -50,10 +48,7 @@ test("a migrated deck with accepted boundary images builds both formats, reviews
   ]);
   assert.equal(handoff.acceptance.visual.pending, 1);
   assert.equal(handoff.acceptance.real_powerpoint.pending, 1);
-  assert.deepEqual(handoff.boundary_images.map(({ boundary, page_id }) => ({ boundary, page_id })), [
-    { boundary: "first", page_id: "page-001" },
-    { boundary: "final", page_id: "page-002" }
-  ]);
+  assert.equal(handoff.boundary_images, undefined);
   await fs.access(handoff.manifest_file);
 });
 

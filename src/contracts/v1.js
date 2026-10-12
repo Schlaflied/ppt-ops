@@ -1,6 +1,8 @@
 import { validateDiagram } from "../layout/diagram.js";
-import { DELIVERY_MODES, INTERACTION_KINDS } from "./delivery.js";
+import { DELIVERY_MODES, INTERACTION_KINDS, validateDeliveryFeedback } from "./delivery.js";
+import { validateOnlineLectureProjectFields } from "./online-lecture.js";
 import { validateAccessibilityProfile } from "../accessibility/index.js";
+import { validateScriptPageFields, validateScriptReviewConfig, validateScriptStructure, validateTalkBudget } from "./talk-budget.js";
 
 export const CONTRACT_VERSION = "1.0";
 export const EVAL_CATEGORIES = Object.freeze(["content_fidelity", "cognitive_clarity", "semantic_accuracy", "visual_hierarchy", "layout_composition", "aesthetic_brand", "powerpoint_fidelity", "editability", "cross_page_continuity", "evidence_provenance", "user_acceptance"]);
@@ -65,7 +67,9 @@ const validators = {
     requireIdList(value.asset_ids, "asset_ids", errors, true);
     if (value.outputs !== undefined) requireEnumList(value.outputs, "outputs", ["html", "pptx", "pdf", "png"], errors);
     if (value.delivery_mode !== undefined) requireEnum(value, "delivery_mode", DELIVERY_MODES, errors);
+    errors.push(...validateOnlineLectureProjectFields(value));
     for (const error of validateAccessibilityProfile(value.accessibility_profile)) errors.push(error);
+    errors.push(...validateTalkBudget(value.talk_budget), ...validateScriptReviewConfig(value.script_review));
   },
   source(value, errors) {
     requireText(value, "file", errors); requireHash(value, errors);
@@ -96,6 +100,7 @@ const validators = {
 
     errors.push(...validateDiagram(value.diagram));
     validateDeliveryFields(value, errors);
+    errors.push(...validateScriptPageFields(value));
     validateAccessibilityFields(value, errors);
   },
   theme(value, errors) { if (!isObject(value.tokens)) errors.push("tokens must be an object"); },
@@ -203,6 +208,7 @@ function validateReferences(bundle, errors) {
       }
     }
   }
+  if (Array.isArray(bundle.pages)) errors.push(...validateScriptStructure(bundle.pages));
 }
 
 function validateFeedbackFinding(finding, index, errors) {
@@ -303,6 +309,7 @@ function validateDeliveryFields(value, errors) {
   }
   if (value.speaker_notes !== undefined && !hasText(value.speaker_notes)) errors.push("speaker_notes must be a non-empty string");
   if (value.speaker_note_intent !== undefined && !hasText(value.speaker_note_intent)) errors.push("speaker_note_intent must be a non-empty string");
+  errors.push(...validateDeliveryFeedback(value.delivery_feedback));
   if (value.audience_interaction !== undefined) {
     if (!isObject(value.audience_interaction)) errors.push("audience_interaction must be an object");
     else {

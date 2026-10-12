@@ -24,17 +24,17 @@ Screenshot assets may opt into evidence semantics and presentation-scale composi
 
 ## Delivery semantics
 
-`Project.delivery_mode` is optional for backward compatibility and accepts `live_talk`, `workshop`, `pitch`, `leave_behind`, or `async`. Optional PageSpec delivery metadata includes `estimated_duration_seconds` (a planning estimate, not rehearsal evidence), `speaker_note_intent`, and `audience_interaction`. `speaker_note_intent` describes off-slide support; it is not visible copy. Renderers must never place it or interaction metadata into slide shapes or HTML slide content. Authored `speaker_notes` are exported to native PPTX notes and an independent HTML `?view=notes` view; the default slide view hides them. Intent remains planning metadata and is never substituted for authored notes. Mode-aware review guidance lives in `src/contracts/delivery.js`; legacy projects without a declared mode retain the original density limits.
+`Project.delivery_mode` is optional for backward compatibility and accepts `live_talk`, `workshop`, `pitch`, `leave_behind`, or `async`. Optional PageSpec delivery metadata includes `estimated_duration_seconds` (a planning estimate, not rehearsal evidence), `speaker_note_intent`, and `audience_interaction`. `speaker_note_intent` describes off-slide support; it is not visible copy. Renderers must never place it or interaction metadata into slide shapes or HTML slide content. Authored `speaker_notes` are exported to native PPTX notes and, in HTML, kept in an inert `<template>` that only the synced `?view=presenter` window and the static `?view=notes` view read; the main slide DOM never renders them (see [presenter-view.md](presenter-view.md)). The presenter window also records real deliveries (per-page talk time excluding pauses, live `!`/`?`/`X` marks, venue and date) and exports a `delivery_record` JSON; `pptops delivery-retro` validates it against `schemas/delivery-record.schema.json`, writes `deliveries/<id>.md|json`, and appends PageSpec `delivery_feedback` (`schemas/delivery-feedback.schema.json`). `resolvePageDuration` in `src/delivery/retro.js` prefers the latest rehearsed time over the planning estimate (see [delivery-retro.md](delivery-retro.md)). Intent remains planning metadata and is never substituted for authored notes. Mode-aware review guidance lives in `src/contracts/delivery.js`; legacy projects without a declared mode retain the original density limits.
 
 ## Provider adapters
 
 Provider adapters implement the neutral interface consumed by `src/ai/pipeline.js`. They must use HTTPS, a bounded timeout, structured output, retry classification, and sanitized errors. Payload construction is allowlist-based; raw source content is excluded unless the caller explicitly authorizes selected segments. Add payload and non-target-mutation regression tests for every adapter.
 
-## Mandatory boundary visuals
+## Optional generated visuals
 
-`src/visual-assets/boundary-policy.js` is the fail-closed policy for formal deck boundaries. It uses canonical V1 PageSpec order, not names or filenames. A passing asset must resolve through the Visual Asset Pipeline's immutable brief, prompt, generation, inspection, observation, user decision, registration, and current file hash. Keep draft validation separate: it must still work before images are ready, while Version freeze, Build, Review, Handoff, and delivery must reject missing or contradictory evidence with `BOUNDARY_IMAGE_REQUIRED`.
+No page position requires a generated image (ADR 0009 supersedes ADR 0002). Cover and closing pages render through the same HTML/PPTX path as every other page. When a page selects a `generated_image`, Review resolves it through the Visual Asset Pipeline's immutable brief, prompt, generation, inspection, observation, user decision, registration, and current file hash.
 
-Tests may use deterministic raster fixtures to exercise the contract, but those records never establish live ImageGen, human aesthetic, Microsoft PowerPoint, or business acceptance. Do not add a Foundation formal-build bypass or accept `type: image` as an equivalent boundary asset.
+Tests may use deterministic raster fixtures to exercise the pipeline, but those records never establish live ImageGen, human aesthetic, Microsoft PowerPoint, or business acceptance.
 
 ## Required checks
 

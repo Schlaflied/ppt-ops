@@ -6,6 +6,8 @@ import path from "node:path";
 import { compileProjectLayout } from "../layout/catalog.js";
 import { applyCitationManifest } from "../citations/manifest.js";
 import { compileImageSemanticLayout } from "../layout/image-semantics.js";
+import { DECK_KEYMAP, PRESENTER_KEYMAP, deckRuntimeScript } from "./html-runtime.js";
+import { latestRehearsedDuration } from "../delivery/retro.js";
 
 const MIME_TYPES = new Map([
   [".avif", "image/avif"], [".gif", "image/gif"], [".jpeg", "image/jpeg"],
@@ -22,7 +24,18 @@ export async function buildHtml(project) {
   const plans = compileProjectLayout(project);
   const slides = project.pages.map((page, index) => renderSlide(page, plans[index], index, project.pages.length, embeddedAssets)).join("\n");
   const hasNotes = project.pages.some((page) => page.speaker_notes);
-  const notes = hasNotes ? `<aside id="speaker-notes" hidden aria-label="Speaker notes"><h1>${escapeHtml(project.project.title)} — Speaker notes</h1>${project.pages.map((page) => `<article id="notes-${page.page}"><h2>${page.page}. ${escapeHtml(page.screen_text.title)}</h2>${page.estimated_duration_seconds ? `<p class="notes-duration">Estimated duration: ${page.estimated_duration_seconds} seconds (unrehearsed)</p>` : ""}<div class="notes-copy">${escapeHtml(page.speaker_notes ?? "No authored notes.")}</div></article>`).join("")}</aside>` : "";
+  // Notes live in an inert <template>: the main deck never instantiates them; only ?view=notes and ?view=presenter read them.
+  const notes = hasNotes ? `<template id="speaker-notes-data"><aside id="speaker-notes" aria-label="Speaker notes"><h1>${escapeHtml(project.project.title)} — Speaker notes</h1>${project.pages.map((page) => `<article id="notes-${page.page}" data-page="${page.page}"><h2>${page.page}. ${escapeHtml(page.screen_text.title)}</h2>${page.estimated_duration_seconds ? `<p class="notes-duration">Estimated duration: ${page.estimated_duration_seconds} seconds (unrehearsed)</p>` : ""}<div class="notes-copy">${escapeHtml(page.speaker_notes ?? "No authored notes.")}</div></article>`).join("")}</aside></template>` : "";
+  const runtimeConfig = {
+    deck_id: deckId(project), project: project.project.name ?? null, title: project.project.title,
+    pages: project.pages.map((page) => ({ page: page.page, ...(page.id ? { id: page.id } : {}), title: page.screen_text.title })),
+    estimates: project.pages.map((page) => page.estimated_duration_seconds ?? null),
+    rehearsed: project.pages.map((page) => { const latest = latestRehearsedDuration(page); return latest ? { seconds: latest.seconds, date: latest.date } : null; }),
+    budget: presenterBudget(project)
+  };
+  const keymapList = (entries) => entries.map(([keys, action]) => `<dt>${escapeHtml(keys)}</dt><dd>${escapeHtml(action)}</dd>`).join("");
+  const keymap = keymapList(DECK_KEYMAP);
+  const presenterKeys = `<div class="presenter-keys"><h3>Presenter window</h3><dl>${keymapList(PRESENTER_KEYMAP)}</dl></div>`;
   const theme = project.theme;
   const title = escapeHtml(project.project.title);
   const headingFont = cssString(theme.typography.heading_font);
@@ -64,28 +77,44 @@ figure img,figure video{display:block;width:100%;height:100%;object-fit:var(--fi
 .slide-footer{display:flex;justify-content:space-between;gap:40px;font-size:21px;letter-spacing:.04em;opacity:.56}
 .slide-citations{display:flex;flex-wrap:wrap;gap:8px 22px;min-height:28px;font-size:16px;line-height:1.35;opacity:.78}.slide-citations span{white-space:nowrap}
 .relation-diagram{position:relative;width:100%;height:650px;align-self:center}.diagram-connectors{position:absolute;inset:0;width:100%;height:100%;overflow:visible;fill:var(--accent);stroke:none}.diagram-connectors line{stroke:var(--accent);stroke-width:2}.diagram-connectors text{font-size:17px;font-family:var(--body)}.diagram-node{position:absolute;display:grid;place-items:center;text-align:center;font-size:31px;line-height:1.45;white-space:pre-line;padding:10px}.diagram-node:after{content:"";position:absolute;left:15%;right:15%;bottom:0;border-bottom:1px solid var(--accent);opacity:.5}.diagram-input,.diagram-output,.diagram-condition{font-weight:700}.diagram-output:after{border-width:3px}.diagram-condition{padding:20px;background:color-mix(in srgb,var(--accent) 8%,transparent);clip-path:polygon(50% 0,100% 50%,50% 100%,0 50%)}.diagram-condition span{max-width:64%}.diagram-condition:after{display:none}.slide-content:has(.relation-diagram){display:block}
-.boundary-slide{display:block;padding:0;isolation:isolate}
-.boundary-slide::before{display:none}
-.boundary-title{position:absolute;z-index:2;left:4.2%;top:50%;width:44%;margin:0;padding:54px 84px 54px 0;transform:translateY(-50%);font-size:88px;line-height:1.04;background:linear-gradient(90deg,var(--bg) 0%,var(--bg) 70%,transparent 100%)}
-.boundary-assets{position:absolute;z-index:1;inset:0;display:flex;align-items:center;justify-content:flex-end;overflow:hidden}
-.boundary-assets figure{flex:0 0 64%;width:64%;height:96%;max-height:none;overflow:visible}
-.boundary-active .controls{display:none}
 .controls{position:fixed;z-index:5;right:24px;bottom:20px;display:flex;align-items:center;gap:12px;padding:10px 14px;border-radius:999px;background:rgba(0,0,0,.72);color:#fff;font:600 14px/1 sans-serif}
 .controls button{min-width:36px;height:36px;padding:0 10px;border:1px solid rgba(255,255,255,.38);border-radius:999px;background:transparent;color:inherit;font-size:20px;cursor:pointer}.controls button:focus-visible{outline:3px solid #fff;outline-offset:2px}
 .controls progress{width:120px;height:6px;accent-color:var(--accent)}
-#speaker-notes[hidden]{display:none}.notes-link{position:fixed;z-index:6;top:12px;right:16px;padding:8px 12px;background:#111;color:#fff;border-radius:6px;font:14px sans-serif}
+.notes-link{position:fixed;z-index:6;top:12px;right:16px;padding:8px 12px;background:#111;color:#fff;border-radius:6px;font:14px sans-serif}
 body.notes-view{display:block;overflow:auto;background:var(--bg)}.notes-view .viewport,.notes-view .controls,.notes-view .notes-link{display:none}#speaker-notes{max-width:960px;margin:0 auto;padding:40px}#speaker-notes h1{font-size:32px}#speaker-notes article{margin:32px 0;border-top:1px solid currentColor;padding-top:16px}.notes-copy{white-space:pre-wrap;font-size:20px;line-height:1.6}.notes-duration{font-size:14px}
-@media print{.notes-link,.controls{display:none}}
+.blackout{position:fixed;inset:0;z-index:30;background:#000;cursor:none}
+.keymap,.overview,.jump-indicator{position:fixed;z-index:25;color:#fff;font:15px/1.4 system-ui,sans-serif}.keymap[hidden],.overview[hidden],.jump-indicator[hidden],.blackout[hidden]{display:none}
+.keymap{left:50%;top:50%;transform:translate(-50%,-50%);width:min(440px,92vw);padding:20px 24px;border-radius:12px;background:rgba(17,17,17,.95);box-shadow:0 12px 40px rgba(0,0,0,.5)}.keymap h2{margin:0 0 12px;font-size:18px}.keymap dl{display:grid;grid-template-columns:auto 1fr;gap:6px 16px;margin:0 0 16px}.keymap dt{font-weight:700;font-variant-numeric:tabular-nums}.keymap dd{margin:0;opacity:.85}
+.keymap button,.overview button[data-close],.presenter button{padding:6px 12px;border:1px solid rgba(255,255,255,.38);border-radius:6px;background:transparent;color:inherit;font:inherit;cursor:pointer}
+.overview{inset:0;overflow:auto;padding:24px;background:rgba(10,10,10,.96)}.overview-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:16px}.overview-head h2{margin:0;font-size:18px}.overview-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:16px}
+.overview-tile{display:grid;gap:6px;padding:6px;border:2px solid transparent;border-radius:8px;background:rgba(255,255,255,.06);color:#fff;font:13px/1.3 system-ui,sans-serif;text-align:left;cursor:pointer}.overview-tile[aria-current="true"]{border-color:var(--accent)}.overview-tile:focus-visible{outline:3px solid #fff}
+.thumb-frame{position:relative;width:100%;aspect-ratio:16/9;overflow:hidden;background:var(--bg);pointer-events:none}.thumb-stage{position:absolute;left:0;top:0;width:1920px;height:1080px;transform-origin:0 0;overflow:hidden;background:var(--bg)}.thumb-stage .slide{visibility:visible;opacity:1;transition:none;pointer-events:none}
+.jump-indicator{left:50%;bottom:72px;transform:translateX(-50%);padding:8px 16px;border-radius:999px;background:rgba(0,0,0,.8);font-weight:600}
+body.presenter-view{display:block;overflow:auto;background:#141414;color:#eee}.presenter-view .viewport,.presenter-view .controls,.presenter-view .notes-link{display:none}
+.presenter{display:grid;grid-template-rows:auto auto 1fr auto;gap:12px;min-height:100vh;padding:12px 16px;font:15px/1.45 system-ui,sans-serif}.presenter h2{margin:0 0 8px;font-size:14px;font-weight:600;letter-spacing:.04em;opacity:.8}
+.presenter-bar,.presenter-nav{display:flex;flex-wrap:wrap;align-items:center;gap:8px 16px}.presenter-title{margin-right:auto}.presenter-status{opacity:.7}.presenter-clock b{font-size:22px;font-variant-numeric:tabular-nums}.presenter-clock.over b{color:#ff8a80}.presenter-clock[hidden]{display:none}
+.presenter-main{display:grid;grid-template-columns:minmax(0,3fr) minmax(260px,2fr);gap:16px;min-height:0}.presenter-side{display:grid;grid-template-rows:auto auto auto auto 1fr;min-height:0}.presenter-side>div[data-p="next"]{margin-bottom:12px}
+.presenter-blackout{margin-left:8px;padding:2px 8px;border-radius:4px;background:#b00020;color:#fff}.presenter-blackout[hidden]{display:none}.presenter-estimate{margin:0 0 8px;font-size:13px;opacity:.75}.presenter-end{margin:0;padding:24px;border:1px dashed rgba(255,255,255,.3);text-align:center;opacity:.7}
+.presenter-notes{overflow:auto;white-space:pre-wrap;font-size:20px;line-height:1.6}.presenter-notes.empty{opacity:.6;font-style:italic}.presenter-jump-hint{opacity:.6;font-size:13px}
+.presenter-keys{display:none}.presenter-view .presenter-keys{display:block}.presenter-keys h3{margin:0 0 8px;font-size:15px}
+.presenter-record{display:flex;flex-wrap:wrap;align-items:center;gap:8px 16px;font-size:13px}.presenter-record label{display:inline-flex;align-items:center;gap:6px;opacity:.85}.presenter-record select,.presenter-record input{padding:4px 6px;border:1px solid rgba(255,255,255,.38);border-radius:6px;background:#222;color:inherit;font:inherit}.presenter-marks{margin-right:auto;font-weight:600}.presenter button:disabled{opacity:.45;cursor:not-allowed}
+@media (max-width:760px){.presenter-main{grid-template-columns:1fr}}
+@media print{.notes-link,.controls,.blackout,.keymap,.overview,.jump-indicator{display:none}}
 @media (prefers-reduced-motion:reduce){.slide{transition:none}}
 </style>
 </head>
 <body>
 <div class="viewport"><main class="stage" aria-label="${title}">${slides}</main></div>
-<nav class="controls" lang="en" aria-label="Slide navigation"><button type="button" data-nav="previous" aria-label="Previous slide">&#8592;</button><progress value="1" max="${project.pages.length}" aria-label="Presentation progress"></progress><output aria-live="polite">1 / ${project.pages.length}</output><button type="button" data-nav="next" aria-label="Next slide">&#8594;</button><button type="button" data-nav="fullscreen" aria-label="Enter fullscreen" title="Fullscreen (F)">&#x26F6;</button></nav>
+<nav class="controls" lang="en" aria-label="Slide navigation"><button type="button" data-nav="previous" aria-label="Previous slide">&#8592;</button><progress value="1" max="${project.pages.length}" aria-label="Presentation progress"></progress><output aria-live="polite">1 / ${project.pages.length}</output><button type="button" data-nav="next" aria-label="Next slide">&#8594;</button><button type="button" data-nav="fullscreen" aria-label="Enter fullscreen" title="Fullscreen (F)">&#x26F6;</button><button type="button" data-nav="overview" aria-label="Slide overview" title="Slide overview (I / G)">&#x25A6;</button><button type="button" data-nav="presenter" aria-label="Open presenter view" title="Presenter view (N)">&#x25EB;</button><button type="button" data-nav="help" aria-label="Keyboard shortcuts" title="Keyboard shortcuts (?)">?</button></nav>
+<div class="blackout" hidden aria-hidden="true"></div>
+<div class="jump-indicator" hidden role="status" lang="en"></div>
+<div class="overview" hidden role="dialog" aria-label="Slide overview" lang="en"><div class="overview-head"><h2>Slide overview</h2><button type="button" data-close>Close (Esc)</button></div><div class="overview-grid"></div></div>
+<div class="keymap" hidden role="dialog" aria-labelledby="keymap-title" lang="en"><h2 id="keymap-title">Keyboard shortcuts</h2><dl>${keymap}</dl>${presenterKeys}<button type="button" data-close>Close (Esc)</button></div>
 ${notes}
 ${hasNotes ? '<a class="notes-link" href="?view=notes" target="_blank" rel="noopener">Speaker notes ↗</a>' : ""}
+<script type="application/json" id="deck-runtime-config">${jsonForScript(runtimeConfig)}</script>
 <script>
-(()=>{const notes=document.getElementById('speaker-notes');if(notes&&new URLSearchParams(location.search).get('view')==='notes'){document.body.classList.add('notes-view');notes.hidden=false;return}const slides=[...document.querySelectorAll('.slide')],stage=document.querySelector('.stage'),progress=document.querySelector('progress'),output=document.querySelector('output'),fullscreen=document.querySelector('[data-nav="fullscreen"]');let current=0;function scale(){stage.style.transform='translate(-50%,-50%) scale('+Math.min(innerWidth/1920,innerHeight/1080)+')'}function show(index){current=Math.max(0,Math.min(slides.length-1,index));slides.forEach((slide,i)=>{const active=i===current;slide.setAttribute('aria-hidden',String(!active));slide.toggleAttribute('inert',!active)});document.body.classList.toggle('boundary-active',current===0||current===slides.length-1);progress.value=current+1;output.value=(current+1)+' / '+slides.length;location.hash='slide-'+slides[current].dataset.page}function move(delta){show(current+delta)}function fullscreenElement(){return document.fullscreenElement||document.webkitFullscreenElement}async function toggleFullscreen(){if(fullscreenElement()){const exit=document.exitFullscreen||document.webkitExitFullscreen;await exit.call(document)}else{const enter=document.documentElement.requestFullscreen||document.documentElement.webkitRequestFullscreen;if(!enter)throw new Error('Fullscreen API unavailable');await enter.call(document.documentElement)}}function syncFullscreen(){const active=Boolean(fullscreenElement());fullscreen.setAttribute('aria-label',active?'Exit fullscreen':'Enter fullscreen');fullscreen.textContent=active?'×':'⛶';scale()}addEventListener('resize',scale);addEventListener('keydown',event=>{if(['INPUT','TEXTAREA','SELECT'].includes(event.target.tagName)||event.target.isContentEditable)return;if([' ','Enter'].includes(event.key)&&event.target.closest('button,a,summary,[role=button]'))return;if(['ArrowRight','ArrowDown','PageDown',' '].includes(event.key)){event.preventDefault();move(1)}else if(['ArrowLeft','ArrowUp','PageUp'].includes(event.key)){event.preventDefault();move(-1)}else if(event.key==='Home'){event.preventDefault();show(0)}else if(event.key==='End'){event.preventDefault();show(slides.length-1)}else if(event.key.toLowerCase()==='f'){event.preventDefault();toggleFullscreen()}});document.addEventListener('fullscreenchange',syncFullscreen);document.addEventListener('webkitfullscreenchange',syncFullscreen);document.querySelector('[data-nav="previous"]').addEventListener('click',()=>move(-1));document.querySelector('[data-nav="next"]').addEventListener('click',()=>move(1));fullscreen.addEventListener('click',toggleFullscreen);const requested=slides.findIndex(slide=>'slide-'+slide.dataset.page===location.hash.slice(1));scale();show(requested<0?0:requested);syncFullscreen()})();
+${deckRuntimeScript()}
 </script>
 </body>
 </html>\n`;
@@ -106,8 +135,6 @@ async function embedAssets(project) {
 
 function renderSlide(page, plan, index, count, assets) {
   const screen = page.screen_text;
-  const boundary = index === 0 || index === count - 1;
-  if (boundary) return renderBoundarySlide(page, plan, index, assets);
   const subtitle = screen.subtitle ? `<p class="subtitle" data-reading-key="subtitle">${escapeHtml(screen.subtitle)}</p>` : "";
   const body = screen.body?.length ? `<ul class="body-copy" data-reading-key="body">${screen.body.map((line) => `<li>${escapeHtml(line)}</li>`).join("")}</ul>` : "";
   const figures = page.asset_slots.map((slot) => renderAsset(slot, assets.get(slot.asset_id), page.page)).join("");
@@ -117,17 +144,6 @@ function renderSlide(page, plan, index, count, assets) {
   <header class="slide-header" data-qa-id="page-${page.page}-header" data-qa-role="content"><h1 id="slide-title-${page.page}" data-reading-key="title">${escapeHtml(screen.title)}</h1><span class="slide-number">${String(index + 1).padStart(2, "0")} / ${String(count).padStart(2, "0")}</span></header>
   <div class="slide-content">${page.diagram ? renderHtmlDiagram(page.diagram, page.page) : `<div class="slide-copy" data-qa-id="page-${page.page}-copy" data-qa-role="node">${subtitle}<p class="message" data-reading-key="message">${escapeHtml(page.three_second_message)}</p>${body}</div>`}<div class="assets" data-reading-key="assets" data-qa-id="page-${page.page}-assets" data-qa-role="node">${figures}</div></div>
   ${citations}<footer class="slide-footer" data-qa-id="page-${page.page}-footer" data-qa-role="content"><span>${escapeHtml(page.task)}</span><span>${escapeHtml(page.visual_job)}</span></footer>
-</section>`;
-}
-
-function renderBoundarySlide(page, plan, index, assets) {
-  const figures = page.asset_slots.map((slot) => renderAsset({ ...slot, fit: "contain" }, assets.get(slot.asset_id), page.page)).join("");
-  const citations = page.citation_entries?.length ? `<div class="slide-citations" aria-label="Sources">${page.citation_entries.map((entry) => `<span>[${entry.number}] ${escapeHtml(entry.public_label || entry.title || "Citation metadata pending")}</span>`).join("")}</div>` : "";
-  const slideTheme = `--bg:${plan.theme.colors.background};--text:${plan.theme.colors.text};--accent:${plan.theme.colors.accent};--heading:${cssString(plan.theme.typography.heading_font)};--body:${cssString(plan.theme.typography.body_font)}`;
-  return `<section class="slide boundary-slide relation-${escapeAttribute(page.relation)} template-${escapeAttribute(plan.template_id)}" style="${escapeAttribute(slideTheme)}" data-page="${page.page}" lang="${escapeAttribute(page.accessibility?.language ?? "")}" data-html-layout="boundary-image-dominant" data-qa-policy="strict" aria-labelledby="slide-title-${page.page}" aria-hidden="${index !== 0}">
-  <div class="boundary-assets" data-reading-key="assets" data-qa-id="page-${page.page}-assets" data-qa-role="node">${figures}</div>
-  <h1 class="boundary-title" data-reading-key="title" id="slide-title-${page.page}" data-qa-id="page-${page.page}-title" data-qa-role="content">${escapeHtml(page.screen_text.title)}</h1>
-  ${citations}
 </section>`;
 }
 
@@ -156,4 +172,25 @@ function escapeHtml(value) {
 }
 
 function escapeAttribute(value) { return escapeHtml(value); }
+function jsonForScript(value) { return JSON.stringify(value).replaceAll("<", "\\u003c").replaceAll("\u2028", "\\u2028").replaceAll("\u2029", "\\u2029"); }
+
+/** Stable per-deck id so presenter sync never crosses between different decks open in one browser. */
+function deckId(project) {
+  let hash = 0x811c9dc5;
+  for (const char of `${project.project.name ?? ""}|${project.project.title}|${project.pages.length}`) hash = Math.imul(hash ^ char.codePointAt(0), 0x01000193) >>> 0;
+  return hash.toString(36);
+}
+
+/**
+ * Total used by the presenter's remaining-time clock: a declared project talk budget
+ * (`talk_budget.total_minutes`) wins; otherwise the sum of per-page planning estimates
+ * when every page has one; otherwise no remaining time is shown.
+ */
+function presenterBudget(project) {
+  const minutes = Number((project.contracts?.project?.talk_budget ?? project.project.talk_budget)?.total_minutes);
+  if (Number.isFinite(minutes) && minutes > 0) return { seconds: Math.round(minutes * 60), source: "talk_budget" };
+  const estimates = project.pages.map((page) => page.estimated_duration_seconds);
+  if (estimates.length && estimates.every((value) => Number.isInteger(value) && value > 0)) return { seconds: estimates.reduce((sum, value) => sum + value, 0), source: "page_estimates" };
+  return null;
+}
 function cssString(value) { return `"${String(value).replaceAll("\\", "\\\\").replaceAll('"', '\\"')}"`; }

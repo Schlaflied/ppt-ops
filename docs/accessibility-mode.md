@@ -39,11 +39,11 @@ Contrast uses the [WCAG 2.2 relative-luminance formula](https://www.w3.org/TR/WC
 
 ## Renderer behavior and evidence limits
 
-HTML writes declared document/page language, direction and scaled font sizes. Boundary titles precede images in the DOM while retaining visual geometry. Images expose descriptions or an explicit decorative state; user-supplied links, chart descriptions and simple data tables have a keyboard-accessible details control. Navigation controls have names and visible focus, including on boundary slides; reduced-motion behavior remains available.
+HTML writes declared document/page language, direction and scaled font sizes. Images expose descriptions or an explicit decorative state; user-supplied links, chart descriptions and simple data tables have a keyboard-accessible details control. Navigation controls have names and visible focus; reduced-motion behavior remains available.
 
 PPTX remains editable, writes document and text-run language, applies direction and font scaling, and records image descriptions. Accessibility Mode disables automatic text shrinking. Both builders reject declared scaled-capacity violations; rendered HTML/PowerPoint QA still checks actual geometry because character capacity cannot prove visual fit.
 
-PPTX object order is inspected independently of the semantic/HTML order. Drawing order can differ, especially where a boundary image sits behind its title. Independent assistive reading-order and decorative flags are unsupported by the current writer. Full native table/chart alternatives and media support remain explicit limitations that require review; an unsupported requirement cannot receive a fabricated pass. HTML media without actual captions/transcripts receives artifact findings even when source metadata names a file.
+PPTX object order is inspected independently of the semantic/HTML order. Drawing order can differ. Independent assistive reading-order and decorative flags are unsupported by the current writer. Full native table/chart alternatives and media support remain explicit limitations that require review; an unsupported requirement cannot receive a fabricated pass. HTML media without actual captions/transcripts receives artifact findings even when source metadata names a file.
 
 Tagged PDF export is unavailable. PNG discards semantics. The capability matrix reports each requested output separately.
 

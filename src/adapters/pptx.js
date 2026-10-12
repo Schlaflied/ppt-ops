@@ -38,7 +38,7 @@ export async function buildPptx(project, outputFile) {
   })) };
   const pptx = createPresentation(project);
   const plans = compileProjectLayout(project);
-  for (const [index, page] of project.pages.entries()) renderSlide(pptx, page, plans[index], project, index, project.pages.length);
+  for (const [index, page] of project.pages.entries()) renderSlide(pptx, page, plans[index], project);
 
   const resolvedOutput = path.resolve(outputFile);
   await fs.mkdir(path.dirname(resolvedOutput), { recursive: true });
@@ -121,7 +121,7 @@ function createPresentation(project) {
   return pptx;
 }
 
-function renderSlide(pptx, page, plan, project, index, count) {
+function renderSlide(pptx, page, plan, project) {
   const theme = plan.theme;
   const slide = pptx.addSlide();
   const profile = project.project.accessibility_profile;
@@ -141,11 +141,6 @@ function renderSlide(pptx, page, plan, project, index, count) {
 
   slide.background = { color: colors.background };
   const assets = resolveSlideAssets(page, project);
-  if (index === 0 || index === count - 1) {
-    renderBoundarySlide(slide, pptx, page, assets, theme, colors, headingFont);
-    renderCitationRegion(slide, page, theme, colors, bodyFont);
-    return;
-  }
   addShape(slide, pptx.ShapeType.rect, {
     x: margin, y: margin, w: 0.12, h: 0.72,
     fill: { color: colors.accent }, line: { color: colors.accent }, objectName: "Theme accent"
@@ -184,26 +179,6 @@ function renderCitationRegion(slide, page, theme, colors, bodyFont) {
     fontFace: bodyFont, fontSize: 8, color: colors.text, transparency: 12,
     margin: 0, valign: "mid", fit: "none", shrinkText: false, autoFit: false,
     objectName: `Slide ${page.page} citations`
-  });
-}
-
-function renderBoundarySlide(slide, pptx, page, assets, theme, colors, headingFont) {
-  const { width, height } = theme.dimensions;
-  const margin = theme.spacing.page_margin;
-  if (assets.length > 0) {
-    renderAssets(slide, assets.map((entry) => ({ ...entry, fit: "contain" })), { x: width * 0.36, y: 0.08, w: width * 0.64, h: height - 0.16 }, headingFont);
-  }
-  addShape(slide, pptx.ShapeType.rect, {
-    x: 0, y: height * 0.2, w: width * 0.49, h: height * 0.6,
-    fill: { color: colors.background, transparency: 8 },
-    line: { color: colors.background, transparency: 100, width: 0 },
-    objectName: `Boundary title support ${page.page}`
-  });
-  addText(slide, page.screen_text.title, {
-    x: margin, y: height * 0.25, w: width * 0.43, h: height * 0.5,
-    fontFace: headingFont, fontSize: 34, bold: true, color: colors.text,
-    margin: 0, valign: "mid", breakLine: false, fit: "shrink",
-    objectName: `Boundary slide ${page.page} title`
   });
 }
 
