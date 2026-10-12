@@ -160,7 +160,7 @@ function renderAsset(slot, asset, pageNumber) {
 }
 
 function renderSemanticAnnotations(asset, slot) {
-  const layout = compileImageSemanticLayout(asset, slot, { x: 0, y: 0, w: 100, h: 100 });
+  const layout = compileImageSemanticLayout(asset, slot, { x: 0, y: 0, w: 100, h: 100 }, { units: "percent" });
   if (!layout.annotations.length) return "";
   const labels = layout.annotations.map(({ id, text, geometry }) => `<span class="semantic-label" data-content-id="${escapeAttribute(id)}" style="left:${geometry.x}%;top:${geometry.y}%;width:${geometry.w}%;height:${geometry.h}%">${escapeHtml(text)}</span>`).join("");
   const lines = layout.connections.map(({ from, to }) => `<line x1="${from.x}" y1="${from.y}" x2="${to.x}" y2="${to.y}"/>`).join("");

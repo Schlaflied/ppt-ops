@@ -287,9 +287,9 @@ function renderAssets(slide, assets, bounds, fontFace) {
       objectName: `Asset ${asset.id}`
     });
     const semantic = compileImageSemanticLayout(asset, { region_mappings }, geometry);
-    for (const connection of semantic.connections) addShape(slide, "line", {
-      x: connection.from.x, y: connection.from.y, w: connection.to.x - connection.from.x, h: connection.to.y - connection.from.y,
-      line: { color: "D14343", width: 1.5 }, objectName: `Semantic connector ${connection.id}`
+    for (const { id, from, to } of semantic.connections) addShape(slide, "line", {
+      x: Math.min(from.x, to.x), y: Math.min(from.y, to.y), w: Math.abs(to.x - from.x), h: Math.abs(to.y - from.y),
+      flipH: (to.x < from.x) !== (to.y < from.y), line: { color: "D14343", width: 1.5 }, objectName: `Semantic connector ${id}`
     });
     for (const annotation of semantic.annotations) addText(slide, annotation.text, {
       ...annotation.geometry, fontFace, fontSize: 11, color: "222222", fill: { color: "FFFFFF", transparency: 5 },
