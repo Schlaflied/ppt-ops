@@ -5,7 +5,7 @@ import path from "node:path";
 import test from "node:test";
 import JSZip from "jszip";
 import { InfrastructureStore } from "../src/infrastructure/store.js";
-import { extractMarkdown, SourceIntake } from "../src/sources/intake.js";
+import { extractMarkdown, multimodalCapabilities, SourceIntake } from "../src/sources/intake.js";
 
 test("Markdown intake preserves heading and line locators and deduplicates by hash", async (t) => {
   const fixture = await setup(t);
@@ -72,6 +72,47 @@ test("intake rejects forged types, unsafe archive paths, and configured expansio
 
 test("Markdown parser normalizes CRLF without losing source line references", () => {
   assert.deepEqual(extractMarkdown("# A\r\nText\r\n").segments, [{ locator: "line:1-3", heading: "A", text: "# A\nText" }]);
+});
+
+test("Stage 1 registers image, audio, and video as immutable reviewable sources", async (t) => {
+  const fixture = await setup(t);
+  const samples = [
+    ["scan.png", Buffer.from([137,80,78,71,13,10,26,10,0]), "image", "region"],
+    ["interview.wav", Buffer.concat([Buffer.from("RIFF"), Buffer.alloc(4), Buffer.from("WAVEfmt ")]), "audio", "time_range"],
+    ["demo.mp4", Buffer.concat([Buffer.alloc(4), Buffer.from("ftypisom")]), "video", "keyframe"]
+  ];
+  for (const [name, bytes, kind, locator] of samples) {
+    const file = path.join(fixture.root, name); await fs.writeFile(file, bytes);
+    const first = await fixture.intake.importFile(file);
+    const second = await fixture.intake.importFile(file);
+    assert.equal(first.source.media_kind, kind); assert.equal(first.source.review_state, "pending_review");
+    assert.equal(first.extracted.privacy.external_authorized, false); assert.equal(first.extracted.segments.length, 0);
+    assert.ok(first.extracted.capabilities.locators.includes(locator)); assert.equal(second.duplicate, true);
+    assert.equal(second.source.id, first.source.id);
+    assert.deepEqual(await fs.readFile(path.join(fixture.root, first.source.file)), bytes);
+  }
+});
+
+test("multimodal capability report separates evidence layers and pending extractors", () => {
+  const report = multimodalCapabilities();
+  assert.deepEqual(report.evidence_kinds, ["structured_extraction", "visual_observation", "transcription", "model_inference", "user_confirmation"]);
+  assert.equal(report.local_first, true); assert.equal(report.external_processing, "explicit_authorization_required");
+  assert.ok(report.media.image.pending.includes("ocr")); assert.ok(report.media.audio.pending.includes("transcription"));
+  assert.ok(report.media.video.pending.includes("visual_events"));
+});
+
+test("multimodal intake fails closed for corruption, unsupported formats, size limits, and cancellation", async (t) => {
+  const fixture = await setup(t);
+  const corrupt = path.join(fixture.root, "bad.mp4"); await fs.writeFile(corrupt, "not-video");
+  await assert.rejects(fixture.intake.importFile(corrupt), (error) => error.code === "MIME_MISMATCH");
+  const unsupported = path.join(fixture.root, "legacy.avi"); await fs.writeFile(unsupported, "RIFF");
+  await assert.rejects(fixture.intake.importFile(unsupported), (error) => error.code === "UNSUPPORTED_SOURCE_TYPE");
+  const limited = new SourceIntake({ projectRoot: fixture.root, store: fixture.store, projectId: "demo", limits: { maxFileBytes: 8 } });
+  const large = path.join(fixture.root, "large.png"); await fs.writeFile(large, Buffer.from([137,80,78,71,13,10,26,10,0]));
+  await assert.rejects(limited.importFile(large), (error) => error.code === "SOURCE_TOO_LARGE");
+  const controller = new AbortController(); controller.abort();
+  await assert.rejects(fixture.intake.importFile(large, { signal: controller.signal }), (error) => error.code === "SOURCE_IMPORT_CANCELLED");
+  assert.equal(fixture.store.listEntities("demo", "source").length, 0);
 });
 
 async function setup(t) {
