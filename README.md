@@ -176,6 +176,7 @@ PPT-Ops 目前处于 **V1.0 发布候选阶段**。
 - [使用与排障指南](docs/operations.md)
 - [非技术评审反馈包](docs/reviewer-feedback-packages.md)
 - [HTML 演讲者视图与现场快捷键](docs/presenter-view.md)
+- [演讲记录与复盘回流](docs/delivery-retro.md)
 - [开发者指南](docs/developer-guide.md)
 - [本地 MCP Server（第一阶段）](docs/mcp-server.md)
 - [Accessibility Mode 与证据边界](docs/accessibility-mode.md)

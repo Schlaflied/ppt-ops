@@ -21,10 +21,21 @@ HTML 演示版是一个自包含文件，可以直接从 `file://` 离线打开�
 
 按 `N`（或控制条中的演讲者按钮）打开新窗口，显示：当前页与下一页缩略图（主屏页面的实时缩放副本）、当前页 `speaker_notes`、本页 `estimated_duration_seconds`（明确标注为未彩排的规划估计）、已讲时长和剩余时长。
 
-- 同步：主屏与演讲者窗口双向同步翻页、跳页与黑屏。消息同时经 `window.open` / `postMessage`、`BroadcastChannel` 和 `localStorage` 的 `storage` 事件发送，按发送方序号去重；在 Chrome 中从 `file://` 打开时已实测可同步，单独打开的 `?view=presenter` 标签页也能通过 `BroadcastChannel` / `localStorage` 连上主屏。
-- 计时：演讲者窗口首次连上主屏时开始计时，计时状态由主屏保存（刷新主屏也不丢）；翻页和黑屏都不会重置，只有演讲者窗口的「Reset timer」会重置，「Pause」可暂停。
+- 同步：主屏与演讲者窗口双向同步翻页、跳页与黑屏；同步消息的 action 为 `hello/state/go/blackout/timer/record`，其中 `record` 由演讲者窗口发送打标与场合信息，`state` 附带主屏持有的演讲记录。消息同时经 `window.open` / `postMessage`、`BroadcastChannel` 和 `localStorage` 的 `storage` 事件发送，按发送方序号去重；在 Chrome 中从 `file://` 打开时已实测可同步，单独打开的 `?view=presenter` 标签页也能通过 `BroadcastChannel` / `localStorage` 连上主屏。
+- 计时：演讲者窗口首次连上主屏时开始计时，计时状态由主屏保存（刷新主屏也不丢）；翻页和黑屏都不会重置，只有演讲者窗口的「Reset timer」会重置（同时开始一份新的演讲记录），「Pause」可暂停。
 - 剩余时长：优先按项目声明的 `talk_budget.total_minutes` 倒计；未声明时，若每页都有 `estimated_duration_seconds`，按估计之和倒计并标注为估计；否则不显示剩余时长。超时后显示超出时长。
 - 备注不进主屏 DOM：备注只存在于惰性的 `<template id="speaker-notes-data">` 中，主屏从不实例化；只有 `?view=presenter` 和 `?view=notes` 会读取。
+- 演讲记录：计时开始时同时记录逐页用时（暂停不计入）。演讲者窗口可选场合（线下/线上）、日期和备注，并用 `!`（讲不顺）、`?`（观众有疑问）、`X`（跳过）给当前页打标，按 `E` 导出 JSON 记录。若该页已有导入过的实测时长，估计旁会显示「Last delivery」。详见 [delivery-retro.md](delivery-retro.md)。
+
+### 演讲者窗口专用键
+
+| 键 | 作用 |
+| --- | --- |
+| `!` / `?` / `X` | 给当前页标记讲不顺 / 观众有疑问 / 跳过（再按一次撤销） |
+| `E` | 导出演讲记录（JSON） |
+| `H` | 键位表（演讲者窗口中 `?` 用于打标，键位表改用 `H` 或右上角按钮） |
+
+翻页、跳页、黑屏等其余键与主屏一致。
 
 ## 两种现场怎么开窗
 
