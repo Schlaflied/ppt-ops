@@ -25,3 +25,7 @@ Stage 1 不调用任何外部模型，也没有上传路径。manifest 明确记
 ## Stage 5：混合来源索引与冲突
 
 `createMixedSourceIndex` 汇总不同媒体 Source、按 hash 报告重复文件、按语义键报告互相冲突的断言，并把 Page Spec ID 绑定到确切 Source、assertion 与 locator。冲突默认保持 `pending`；只有显式用户 precedence 决定可以记录权威来源，系统不会自行挑选版本。
+
+## Stage 6：验收证据与关闭门
+
+`createMultimodalAcceptanceReport` 分别记录图片、音频、视频和混合资料案例，并独立检查自动回归、隐私授权门、取消/中断恢复以及真实获授权案例的人工接受。合成 fixtures 可以证明自动化路径，但不能满足 `real_authorized_case`；只有四类真实获授权案例均由人明确接受时，报告才会标记 `complete`。真实材料不会提交到仓库。
