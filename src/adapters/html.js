@@ -75,12 +75,6 @@ figure img,figure video{display:block;width:100%;height:100%;object-fit:var(--fi
 .slide-footer{display:flex;justify-content:space-between;gap:40px;font-size:21px;letter-spacing:.04em;opacity:.56}
 .slide-citations{display:flex;flex-wrap:wrap;gap:8px 22px;min-height:28px;font-size:16px;line-height:1.35;opacity:.78}.slide-citations span{white-space:nowrap}
 .relation-diagram{position:relative;width:100%;height:650px;align-self:center}.diagram-connectors{position:absolute;inset:0;width:100%;height:100%;overflow:visible;fill:var(--accent);stroke:none}.diagram-connectors line{stroke:var(--accent);stroke-width:2}.diagram-connectors text{font-size:17px;font-family:var(--body)}.diagram-node{position:absolute;display:grid;place-items:center;text-align:center;font-size:31px;line-height:1.45;white-space:pre-line;padding:10px}.diagram-node:after{content:"";position:absolute;left:15%;right:15%;bottom:0;border-bottom:1px solid var(--accent);opacity:.5}.diagram-input,.diagram-output,.diagram-condition{font-weight:700}.diagram-output:after{border-width:3px}.diagram-condition{padding:20px;background:color-mix(in srgb,var(--accent) 8%,transparent);clip-path:polygon(50% 0,100% 50%,50% 100%,0 50%)}.diagram-condition span{max-width:64%}.diagram-condition:after{display:none}.slide-content:has(.relation-diagram){display:block}
-.boundary-slide{display:block;padding:0;isolation:isolate}
-.boundary-slide::before{display:none}
-.boundary-title{position:absolute;z-index:2;left:4.2%;top:50%;width:44%;margin:0;padding:54px 84px 54px 0;transform:translateY(-50%);font-size:88px;line-height:1.04;background:linear-gradient(90deg,var(--bg) 0%,var(--bg) 70%,transparent 100%)}
-.boundary-assets{position:absolute;z-index:1;inset:0;display:flex;align-items:center;justify-content:flex-end;overflow:hidden}
-.boundary-assets figure{flex:0 0 64%;width:64%;height:96%;max-height:none;overflow:visible}
-.boundary-active .controls{display:none}
 .controls{position:fixed;z-index:5;right:24px;bottom:20px;display:flex;align-items:center;gap:12px;padding:10px 14px;border-radius:999px;background:rgba(0,0,0,.72);color:#fff;font:600 14px/1 sans-serif}
 .controls button{min-width:36px;height:36px;padding:0 10px;border:1px solid rgba(255,255,255,.38);border-radius:999px;background:transparent;color:inherit;font-size:20px;cursor:pointer}.controls button:focus-visible{outline:3px solid #fff;outline-offset:2px}
 .controls progress{width:120px;height:6px;accent-color:var(--accent)}
@@ -139,8 +133,6 @@ async function embedAssets(project) {
 
 function renderSlide(page, plan, index, count, assets) {
   const screen = page.screen_text;
-  const boundary = index === 0 || index === count - 1;
-  if (boundary) return renderBoundarySlide(page, plan, index, assets);
   const subtitle = screen.subtitle ? `<p class="subtitle" data-reading-key="subtitle">${escapeHtml(screen.subtitle)}</p>` : "";
   const body = screen.body?.length ? `<ul class="body-copy" data-reading-key="body">${screen.body.map((line) => `<li>${escapeHtml(line)}</li>`).join("")}</ul>` : "";
   const figures = page.asset_slots.map((slot) => renderAsset(slot, assets.get(slot.asset_id), page.page)).join("");
@@ -150,17 +142,6 @@ function renderSlide(page, plan, index, count, assets) {
   <header class="slide-header" data-qa-id="page-${page.page}-header" data-qa-role="content"><h1 id="slide-title-${page.page}" data-reading-key="title">${escapeHtml(screen.title)}</h1><span class="slide-number">${String(index + 1).padStart(2, "0")} / ${String(count).padStart(2, "0")}</span></header>
   <div class="slide-content">${page.diagram ? renderHtmlDiagram(page.diagram, page.page) : `<div class="slide-copy" data-qa-id="page-${page.page}-copy" data-qa-role="node">${subtitle}<p class="message" data-reading-key="message">${escapeHtml(page.three_second_message)}</p>${body}</div>`}<div class="assets" data-reading-key="assets" data-qa-id="page-${page.page}-assets" data-qa-role="node">${figures}</div></div>
   ${citations}<footer class="slide-footer" data-qa-id="page-${page.page}-footer" data-qa-role="content"><span>${escapeHtml(page.task)}</span><span>${escapeHtml(page.visual_job)}</span></footer>
-</section>`;
-}
-
-function renderBoundarySlide(page, plan, index, assets) {
-  const figures = page.asset_slots.map((slot) => renderAsset({ ...slot, fit: "contain" }, assets.get(slot.asset_id), page.page)).join("");
-  const citations = page.citation_entries?.length ? `<div class="slide-citations" aria-label="Sources">${page.citation_entries.map((entry) => `<span>[${entry.number}] ${escapeHtml(entry.public_label || entry.title || "Citation metadata pending")}</span>`).join("")}</div>` : "";
-  const slideTheme = `--bg:${plan.theme.colors.background};--text:${plan.theme.colors.text};--accent:${plan.theme.colors.accent};--heading:${cssString(plan.theme.typography.heading_font)};--body:${cssString(plan.theme.typography.body_font)}`;
-  return `<section class="slide boundary-slide relation-${escapeAttribute(page.relation)} template-${escapeAttribute(plan.template_id)}" style="${escapeAttribute(slideTheme)}" data-page="${page.page}" lang="${escapeAttribute(page.accessibility?.language ?? "")}" data-html-layout="boundary-image-dominant" data-qa-policy="strict" aria-labelledby="slide-title-${page.page}" aria-hidden="${index !== 0}">
-  <div class="boundary-assets" data-reading-key="assets" data-qa-id="page-${page.page}-assets" data-qa-role="node">${figures}</div>
-  <h1 class="boundary-title" data-reading-key="title" id="slide-title-${page.page}" data-qa-id="page-${page.page}-title" data-qa-role="content">${escapeHtml(page.screen_text.title)}</h1>
-  ${citations}
 </section>`;
 }
 

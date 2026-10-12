@@ -35,16 +35,14 @@ test("demo project builds a structurally valid editable 16:9 PPTX", async (t) =>
   assert.ok(zip.file("ppt/slides/slide2.xml"));
 });
 
-test("boundary slides keep only one title while fonts and standard shapes stay native", async (t) => {
+test("first and final slides render their full content while fonts and standard shapes stay native", async (t) => {
   const { project, zip } = await withDemoBuild(t);
   const slideXml = await Promise.all([1, 2].map((number) => zip.file(`ppt/slides/slide${number}.xml`).async("string")));
   const combined = slideXml.join("\n");
 
   for (const page of project.pages) {
     assert.match(combined, new RegExp(escapeRegExp(page.screen_text.title)));
-    for (const line of page.screen_text.body ?? []) assert.doesNotMatch(combined, new RegExp(escapeRegExp(line)));
-    assert.doesNotMatch(combined, new RegExp(escapeRegExp(page.three_second_message)));
-    assert.doesNotMatch(combined, new RegExp(escapeRegExp(page.task)));
+    for (const line of page.screen_text.body ?? []) assert.match(combined, new RegExp(escapeRegExp(line)));
   }
   assert.match(combined, /<a:t>[^<]+<\/a:t>/);
   assert.match(combined, /<p:sp>/);

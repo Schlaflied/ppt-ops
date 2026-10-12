@@ -26,7 +26,7 @@ jobs:
       - run: npm test
       - run: node src/cli.js html-qa projects/ai-delivery-first-order/ppt/index.html
       - run: node src/cli.js validate examples/demo-project
-      - run: node --test test/boundary-images.test.js test/integration.test.js
+      - run: node --test test/integration.test.js
 
   updater:
     strategy:

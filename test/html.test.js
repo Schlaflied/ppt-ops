@@ -23,15 +23,11 @@ test("buildHtml creates a deterministic self-contained semantic deck", async () 
   assert.match(first, /data:image\/svg\+xml;base64,/);
   assert.match(first, /data-asset-id="workflow-mark"/);
   assert.doesNotMatch(first, /(?:src|href)="(?:\.\/|assets\/)/);
-  assert.equal((first.match(/data-html-layout="boundary-image-dominant"/g) ?? []).length, 2);
-  assert.match(first, /\.boundary-assets figure\{flex:0 0 64%;width:64%;height:96%/);
-  const boundarySlides = [...first.matchAll(/<section class="slide boundary-slide[\s\S]*?<\/section>/g)].map((match) => match[0]);
-  assert.equal(boundarySlides.length, 2);
-  for (const slide of boundarySlides) {
-    assert.equal((slide.match(/<h1\b/g) ?? []).length, 1);
-    assert.doesNotMatch(slide, /subtitle|message|body-copy|slide-number|slide-footer/);
-  }
-  assert.doesNotMatch(boundarySlides[1], /HTML：预览与分享|PPTX：编辑与播放/);
+  // First and final pages are ordinary pages: no forced image-dominant, title-only layout.
+  assert.doesNotMatch(first, /boundary-image-dominant|boundary-slide|boundary-active/);
+  const slides = [...first.matchAll(/<section class="slide [\s\S]*?<\/section>/g)].map((match) => match[0]);
+  assert.match(slides.at(-1), /HTML：预览与分享/);
+  assert.match(slides.at(-1), /slide-footer/);
 });
 
 test("buildHtml escapes shared text and asset labels", async () => {

@@ -17,7 +17,7 @@ export function applyAccessibilityHtml(html, project) {
   if (!profile?.enabled) return html;
   const scale = profile.text_scale ?? 1;
   html = html.replace(/<style>([\s\S]*?)<\/style>/, (_, css) => `<style>${css.replace(/font-size:(\d+(?:\.\d+)?)px/g, (_, size) => `font-size:${Number(size) * scale}px`).replace(/font:([^;{}]*?)(\d+(?:\.\d+)?)px\//g, (_, prefix, size) => `font:${prefix}${Number(size) * scale}px/`)}
-    .controls{background:#111}.slide-footer,.slide-number{opacity:1}.boundary-active .controls{display:flex}
+    .controls{background:#111}.slide-footer,.slide-number{opacity:1}
     :focus-visible{outline:3px solid currentColor;outline-offset:4px}
     .a11y-description{position:absolute;width:1px;height:1px;padding:0;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
     .a11y-alternatives{position:absolute;left:var(--margin);bottom:16px;z-index:8;max-width:85%;max-height:65%;overflow:auto;background:var(--bg);color:var(--text);padding:8px 12px;border:2px solid currentColor;font-size:${22 * scale}px}
@@ -25,8 +25,6 @@ export function applyAccessibilityHtml(html, project) {
   </style>`);
   html = html.replace(/(<section\b[^>]*data-page="(\d+)"[\s\S]*?)(<\/section>)/g, (all, content, number, end) => {
     const page = project.pages.find(page => page.page === Number(number));
-    // Boundary elements are absolutely positioned, so this improves DOM order without changing geometry.
-    if (content.includes('class="slide boundary-slide')) content = content.replace(/(\s*<div class="boundary-assets"[\s\S]*?<\/div>)(\s*<h1[\s\S]*?<\/h1>)/, "$2$1");
     return content + renderAccessibilityAlternatives(page) + end;
   });
   return html;

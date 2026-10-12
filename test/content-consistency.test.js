@@ -37,3 +37,16 @@ test("content consistency blocks numeric and page mismatches", async t => {
   assert.ok(report.findings.some(item => item.rule === "sensitive-token-mismatch"));
   assert.ok(report.findings.some(item => item.rule === "page-missing"));
 });
+
+test("content consistency ignores HTML-only chrome and accepts PPTX body copy in place of the message", async t => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "pptops-content-consistency-"));
+  t.after(() => fs.rm(root, { recursive: true, force: true }));
+  const html = path.join(root, "slides.html");
+  const pptx = path.join(root, "slides.pptx");
+  await fs.writeFile(html, '<section class="slide" data-page="1"><header><h1 data-reading-key="title">封面</h1><span class="slide-number">01 / 02</span></header><p class="message" data-reading-key="message">三秒信息</p><ul data-reading-key="body"><li>要点 1</li><li>要点 2</li></ul><footer><span>任务</span><span>视觉</span></footer></section>');
+  const zip = new JSZip();
+  zip.file("ppt/slides/slide1.xml", '<p:sld><a:t>封面</a:t><a:t>要点 1</a:t><a:t>要点 2</a:t><a:t>1</a:t></p>');
+  await fs.writeFile(pptx, await zip.generateAsync({ type: "nodebuffer" }));
+  const report = await inspectContentConsistency({ htmlFile: html, pptxFile: pptx });
+  assert.equal(report.status, "passed", JSON.stringify(report.findings));
+});
