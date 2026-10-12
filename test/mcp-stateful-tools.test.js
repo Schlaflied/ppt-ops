@@ -62,6 +62,22 @@ test("MCP review run preserves human acceptance boundaries and is idempotent", a
   assert.equal(inspected.structuredContent.review.state, "human_pending");
 });
 
+test("MCP handoff requires an accepted exact Review and stored delivery selection", async t => {
+  const projectDir = await fixture(t); await seedAcceptedBoundaryImages(projectDir);
+  const service = await ApplicationService.open(projectDir); const version = await service.freezeVersion(); const built = await service.createBuild({ versionId: version.id, targets: ["html"] });
+  const reviewed = await service.runReview(built.build.id); const accepted = await service.recordReview(reviewed.review.id, { decision: "accepted", expectedRevision: reviewed.review.revision, evidence: { reviewer: "user:fixture" } });
+  const selected = await service.selectDelivery({ artifactType: "presentation", formats: ["html"], sourceId: built.build.id, sourceRevision: version.id, actor: "user:fixture", buildId: built.build.id }); service.close();
+  const client = await connect(t, projectDir);
+  const input = { build_id: built.build.id, review_id: accepted.id, expected_review_revision: accepted.revision, delivery_selection_id: selected.decision.id, request_id: "handoff-request-001" };
+  const first = await client.callTool({ name: "pptops_handoff_create", arguments: input });
+  assert.equal(first.isError, undefined); assert.equal(first.structuredContent.state, "verified"); assert.match(first.structuredContent.manifest_file, /manifest\.json$/);
+  assert.equal(path.isAbsolute(first.structuredContent.package_dir), false);
+  const second = await client.callTool({ name: "pptops_handoff_create", arguments: input });
+  assert.equal(second.structuredContent.handoff_id, first.structuredContent.handoff_id); assert.equal(second.structuredContent.reused, true);
+  const stale = await client.callTool({ name: "pptops_handoff_create", arguments: { ...input, request_id: "handoff-request-002", expected_review_revision: accepted.revision - 1 } });
+  assert.equal(stale.structuredContent.error.code, "STALE_OBJECT_REVISION");
+});
+
 async function fixture(t) {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "ppt-ops-mcp-stateful-"));
   const projectDir = path.join(root, "project"); await initializeProject(projectDir, { name: "mcp-stateful", title: "MCP Stateful" });

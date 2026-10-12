@@ -76,6 +76,16 @@ export function createPptOpsMcpServer(projectDir) {
     const result = await withWriteService(projectDir, (service) => service.runReview(build_id, { requestId: request_id }));
     return { review_id: result.review.id, build_id, state: result.review.state, revision: result.review.revision, reused: result.reused, acceptance: result.review.human, automated_check_count: result.review.automated?.length ?? 0, inspect_tool: "pptops_review_inspect" };
   });
+  registerStatefulTool(server, "pptops_handoff_create", "使用已接受 Review 和已存储 Delivery Selection 创建正式 Handoff；不会接受 Review 或替用户选择格式。", z.object({
+    build_id: idSchema("Build"), review_id: idSchema("Review"), expected_review_revision: z.number().int().positive(), delivery_selection_id: idSchema("Delivery Selection"), request_id: idSchema("Request")
+  }).strict(), async ({ build_id, review_id, expected_review_revision, delivery_selection_id, request_id }) => {
+    return withWriteService(projectDir, async (service) => {
+      const current = service.reviewInspect(review_id).review;
+      if (current.revision !== expected_review_revision) throw new ApplicationError("STALE_OBJECT_REVISION", "review revision is stale", { expected: current.revision, received: expected_review_revision });
+      const result = await service.createHandoff(build_id, review_id, { deliverySelectionId: delivery_selection_id, requestId: request_id });
+      return { handoff_id: result.handoff.id, build_id, review_id, state: result.handoff.state, reused: result.reused, manifest_file: result.manifest_file, package_dir: result.package_dir };
+    });
+  });
 
   return server;
 }
