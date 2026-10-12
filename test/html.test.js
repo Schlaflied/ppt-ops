@@ -18,7 +18,7 @@ test("buildHtml creates a deterministic self-contained semantic deck", async () 
   assert.match(first, /ArrowRight/);
   assert.match(first, /data-nav="fullscreen"/);
   assert.match(first, /requestFullscreen\|\|document\.documentElement\.webkitRequestFullscreen/);
-  assert.match(first, /event\.key\.toLowerCase\(\)===['"]f['"]/);
+  assert.match(first, /lower === "f"\) return "fullscreen"/);
   assert.match(first, /prefers-reduced-motion:reduce/);
   assert.match(first, /data:image\/svg\+xml;base64,/);
   assert.match(first, /data-asset-id="workflow-mark"/);
