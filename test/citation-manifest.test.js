@@ -76,10 +76,11 @@ test("appendix numbering is stable when the same frozen evidence serves variants
   assert.equal(executive.pages.at(-1).page, 4);
 });
 
-test("title-only boundary pages reject visible citations", () => {
+test("first and final pages may carry visible citations", () => {
   const ledger = makeLedger([claim("claim-a", [{ source_id: "source-a", locator: "#p1", source_sha256: hashA }], [{ page_id: "page-001", field: "/screen_text/title" }])]);
   const manifest = buildCitationManifest({ ledger, sources, pages, decision: { ...decision, channels: ["on_slide"] }, metadata });
-  assert.throws(() => applyCitationManifest({ pages }, manifest), { code: "CITATION_BOUNDARY_CONFLICT" });
+  const applied = applyCitationManifest({ pages }, manifest);
+  assert.equal(applied.pages[0].citation_entries.length, 1);
 });
 
 function makeLedger(claims) { return { schema_version: "1.0", project_id: "demo", claims }; }

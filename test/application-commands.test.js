@@ -181,7 +181,7 @@ test("formal build, review, and handoff commands require a frozen version and ac
   assert.equal(handoff.handoff.state, "verified");
   const manifest = JSON.parse(await fs.readFile(handoff.manifest_file, "utf8"));
   assert.deepEqual(manifest.outputs.map(({ name }) => name), ["review-report.json", "slides.pptx"]);
-  assert.equal(manifest.boundary_images[0].asset_id, "generated-page-001-boundary");
+  assert.equal(manifest.boundary_images, undefined);
 });
 
 test("CLI application commands return stable success and error envelopes", async (t) => {

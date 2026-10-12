@@ -37,9 +37,8 @@ export function buildCitationManifest({ ledger, sources = [], pages = [], decisi
 export function applyCitationManifest(project, manifest = project.citationManifest) {
   if (!manifest) return project;
   const byId = new Map(manifest.citations.map((entry) => [entry.id, entry]));
-  const pages = project.pages.map((page, index) => {
+  const pages = project.pages.map((page) => {
     const delivery = manifest.pages[page.id] ?? { on_slide: [], speaker_notes: [] };
-    if (delivery.on_slide.length && (index === 0 || index === project.pages.length - 1)) throw failure("CITATION_BOUNDARY_CONFLICT", `page ${page.id} is a title-only boundary; use speaker notes or appendix citations`);
     if (delivery.on_slide.length > manifest.decision.max_on_slide) throw failure("CITATION_REGION_OVERFLOW", `page ${page.id} exceeds citation capacity ${manifest.decision.max_on_slide}`);
     const notes = delivery.speaker_notes.map((id) => byId.get(id)).filter(Boolean);
     const sourceNotes = notes.length ? `Sources:\n${notes.map((entry) => renderCitation(entry)).join("\n")}` : "";
@@ -106,7 +105,7 @@ function appendixPages(manifest, originalCount) {
   return pages;
 }
 
-function renderCitation(entry) {
+export function renderCitation(entry) {
   const label = [entry.author_or_organization, entry.title, entry.date].filter(Boolean).join(". ") || entry.public_label || "Citation metadata pending";
   return `[${entry.number}] ${label}${entry.url ? ` — ${entry.url}` : ""}`;
 }

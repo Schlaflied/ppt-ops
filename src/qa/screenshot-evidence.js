@@ -13,6 +13,8 @@ export function analyzeScreenshotEvidence(project, placements = [], options = {}
   const byPageAndAsset = new Map(placements.map((item) => [`${item.page}:${item.asset_id}`, item]));
   const usages = [];
   const findings = [];
+  const viewHeights = Array.isArray(options.downscaledViews) ? options.downscaledViews : [];
+  const focalRegionsByView = new Map(viewHeights.map((height) => [height, []]));
 
   for (const page of project.pages ?? []) {
     for (const slot of page.asset_slots ?? []) {
@@ -46,6 +48,10 @@ export function analyzeScreenshotEvidence(project, placements = [], options = {}
       }
       const visible = visibleScreenshotRegion(semantics.focal_region, placement);
       const focalCoverage = visible.width * visible.height / (SLIDE_WIDTH_EMU * SLIDE_HEIGHT_EMU);
+      for (const [height, regions] of focalRegionsByView) {
+        // Estimated focal-region size in pixels on a downscaled 16:9 view (e.g. 720p replay).
+        regions.push({ page: page.page, asset_id: asset.id, width_px: Math.round(visible.width / SLIDE_WIDTH_EMU * height * 16 / 9), height_px: Math.round(visible.height / SLIDE_HEIGHT_EMU * height) });
+      }
       if (focalCoverage < threshold) {
         findings.push(finding(page.page, asset.id, "screenshot-focal-coverage", "warning", {
           evidence_purpose: evidencePurpose,
@@ -97,6 +103,7 @@ export function analyzeScreenshotEvidence(project, placements = [], options = {}
     scope: "declared-composition-only",
     human_readability_assessed: false,
     screenshot_usage_count: usages.length,
+    ...(viewHeights.length ? { downscaled_views: [...focalRegionsByView].map(([height, focal_regions]) => ({ height, width: Math.round(height * 16 / 9), focal_regions })) } : {}),
     findings
   };
 }

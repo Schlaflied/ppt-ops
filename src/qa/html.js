@@ -4,6 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { analyzeRenderedRhythm } from "./rhythm.js";
+import { analyzeOnlineLecture } from "./online-lecture.js";
 
 const DEFAULT_TIMEOUT_MS = 30000;
 const PROFILE_CLEANUP_MAX_ATTEMPTS = 25;
@@ -106,21 +107,56 @@ export function analyzeHtmlGeometry(pages, options = {}) {
 
 export async function inspectHtmlPresentation(options = {}) {
   if (!options.browserPath && !await findBrowser()) return { status: "degraded", reason: "Google Chrome or Chromium is unavailable", page_count: 0, annotated_page_count: 0, findings: [], pages: [] };
-  return withHtmlPage(options, async (client, executable, file) => ({ ...analyzeHtmlGeometry(await collectGeometry(client)), browser: executable, html_file: file }));
+  return withHtmlPage(options, async (client, executable, file) => {
+    const result = { ...analyzeHtmlGeometry(await collectGeometry(client)), browser: executable, html_file: file };
+    if (!options.onlineLecture) return result;
+    // Online-lecture checks use rendered DOM boxes, computed font sizes and SVG strokes.
+    const online = analyzeOnlineLecture(await collectOnlineGeometry(client), options.onlineLecture);
+    const findings = [...result.findings, ...online.findings];
+    const pages = result.pages.map((page) => ({ ...page, finding_count: findings.filter((item) => findingTouchesPage(item, page.page)).length }));
+    return { ...result, findings, pages, online_lecture: online };
+  });
 }
 
-export async function printHtmlPdf({ htmlFile, browserPath, timeoutMs, presentation = false }) {
+const PRESENTATION_STATIC_STYLE = '@page{size:20in 11.25in;margin:0} html,body{width:1920px!important;height:auto!important;overflow:visible!important;background:white!important} .viewport, .stage{position:static!important;display:block!important;transform:none!important;width:1920px!important;height:auto!important;overflow:visible!important} .slide{position:relative!important;inset:auto!important;width:1920px!important;height:1080px!important;visibility:visible!important;opacity:1!important;transition:none!important;break-after:page!important;page-break-after:always!important;box-sizing:border-box!important} .slide:last-child{break-after:auto!important;page-break-after:auto!important} .controls,.notes-link,#speaker-notes{display:none!important} .slide[data-handout-omit]{display:none!important}';
+
+// Lays every slide out statically, one 1920x1080 block per slide, with notes and navigation hidden.
+// `omitPages` lists data-page values that are removed from the output (e.g. merged transitions in a handout).
+async function applyPresentationStaticLayout(client, omitPages = []) {
+  const result = await client.send("Runtime.evaluate", { returnByValue: true, expression: `(() => {
+    const style = document.createElement('style');
+    style.textContent = ${JSON.stringify(PRESENTATION_STATIC_STYLE)};
+    document.head.appendChild(style);
+    const omit = new Set(${JSON.stringify(omitPages.map(String))});
+    const slides = [...document.querySelectorAll('.slide')];
+    slides.forEach(slide => {slide.removeAttribute('inert');slide.setAttribute('aria-hidden','false');if(omit.has(slide.dataset.page))slide.setAttribute('data-handout-omit','')});
+    const visible = slides.filter(slide => !slide.hasAttribute('data-handout-omit'));
+    // The last printed slide must not force a trailing blank page.
+    visible.forEach((slide, index) => { if (index === visible.length - 1) slide.style.setProperty('break-after','auto','important'); });
+    return visible.map(slide => ({ page: slide.dataset.page, top: slide.getBoundingClientRect().top + scrollY }));
+  })()` });
+  return result.result?.value ?? [];
+}
+
+export async function printHtmlPdf({ htmlFile, browserPath, timeoutMs, presentation = false, omitPages = [] }) {
   return withHtmlPage({ htmlFile, browserPath, timeoutMs }, async (client) => {
-    if (presentation) {
-      await client.send("Runtime.evaluate", { expression: `(() => {
-        const style = document.createElement('style');
-        style.textContent = '@page{size:20in 11.25in;margin:0} html,body{width:1920px!important;height:auto!important;overflow:visible!important;background:white!important} .viewport, .stage{position:static!important;display:block!important;transform:none!important;width:1920px!important;height:auto!important;overflow:visible!important} .slide{position:relative!important;inset:auto!important;width:1920px!important;height:1080px!important;visibility:visible!important;opacity:1!important;break-after:page!important;page-break-after:always!important;box-sizing:border-box!important} .slide:last-child{break-after:auto!important;page-break-after:auto!important} .controls,.notes-link,#speaker-notes{display:none!important}';
-        document.head.appendChild(style);
-        document.querySelectorAll('.slide').forEach(slide => {slide.removeAttribute('inert');slide.setAttribute('aria-hidden','false')});
-      })()` });
-    }
+    if (presentation) await applyPresentationStaticLayout(client, omitPages);
     const result = await client.send("Page.printToPDF", { printBackground: true, displayHeaderFooter: false, preferCSSPageSize: true, marginTop: 0, marginBottom: 0, marginLeft: 0, marginRight: 0 });
     return Buffer.from(result.data, "base64");
+  });
+}
+
+/** Captures one PNG per slide of a generated presentation HTML file, in slide order. */
+export async function captureSlidePreviews({ htmlFile, browserPath, timeoutMs, scale = 0.5 }) {
+  return withHtmlPage({ htmlFile, browserPath, timeoutMs }, async (client) => {
+    await client.send("Emulation.setDeviceMetricsOverride", { width: 1920, height: 1080, deviceScaleFactor: 1, mobile: false });
+    const slides = await applyPresentationStaticLayout(client);
+    const previews = [];
+    for (const slide of slides) {
+      const shot = await client.send("Page.captureScreenshot", { format: "png", captureBeyondViewport: true, clip: { x: 0, y: slide.top, width: 1920, height: 1080, scale } });
+      previews.push({ page: Number(slide.page) || previews.length + 1, png: Buffer.from(shot.data, "base64") });
+    }
+    return previews;
   });
 }
 
@@ -345,6 +381,62 @@ async function collectGeometry(client) {
   })()`;
   const result = await client.send("Runtime.evaluate", { expression, returnByValue: true });
   if (result.exceptionDetails) throw new Error(result.exceptionDetails.description ?? result.exceptionDetails.text ?? "HTML geometry collection failed");
+  return result.result.value;
+}
+
+async function collectOnlineGeometry(client) {
+  const expression = `(()=>{
+    const parse = (value) => { const m = String(value).match(/rgba?\\(([^)]+)\\)/); if (!m) return null; const p = m[1].split(',').map(Number); return { rgb: p.slice(0, 3), a: p.length > 3 ? p[3] : 1 }; };
+    const hex = (rgb) => '#' + rgb.map((v) => Math.round(v).toString(16).padStart(2, '0')).join('').toUpperCase();
+    const backgroundOf = (element, slide) => {
+      for (let node = element; node; node = node.parentElement) {
+        const style = getComputedStyle(node);
+        if (style.backgroundImage && style.backgroundImage !== 'none') return null;
+        const color = parse(style.backgroundColor);
+        if (color && color.a >= 0.99) return color.rgb;
+        if (node === slide) break;
+      }
+      return [255, 255, 255];
+    };
+    return [...document.querySelectorAll('.slide')].map((slide, index) => {
+      const sr = slide.getBoundingClientRect();
+      const toReference = 1080 / (slide.offsetHeight || 1080);
+      const scaleToReference = 1080 / (sr.height || 1080);
+      const norm = (element) => { const r = element.getBoundingClientRect(); return { x: (r.left - sr.left) / sr.width, y: (r.top - sr.top) / sr.height, width: r.width / sr.width, height: r.height / sr.height }; };
+      const shown = (element) => getComputedStyle(element).display !== 'none' && element.getBoundingClientRect().width > 0;
+      const decorative = (element) => element.closest('[data-qa-role="decorative"],[aria-hidden="true"]');
+      const elements = [];
+      for (const element of slide.querySelectorAll('[data-qa-role="content"],[data-qa-role="node"]')) {
+        if (shown(element)) elements.push({ id: element.dataset.qaId || element.id || ('page-' + (index + 1) + '-qa-' + elements.length), rect: norm(element), key: true });
+      }
+      const texts = [...slide.querySelectorAll('h1,h2,h3,h4,h5,h6,p,li,dt,dd,th,td,figcaption,span,small,text')]
+        .filter((element) => shown(element) && [...element.childNodes].some((node) => node.nodeType === 3 && node.textContent.trim()));
+      texts.forEach((element, i) => {
+        const style = getComputedStyle(element);
+        const fg = parse(style.color);
+        const bg = backgroundOf(element, slide);
+        const secondary = Boolean(element.closest('footer,small,figcaption,.slide-footer,.slide-number,.citation,.citations,[data-qa-text-role="secondary"]'));
+        const foreground = fg && bg ? hex(fg.rgb.map((v, k) => v * fg.a * Number(style.opacity || 1) + bg[k] * (1 - fg.a * Number(style.opacity || 1)))) : undefined;
+        elements.push({
+          id: element.dataset.qaId || element.id || ('page-' + (Number(slide.dataset.page) || index + 1) + '-text-' + (i + 1)),
+          rect: norm(element), key: !decorative(element) && !element.closest('.slide-number'),
+          text: { font_px: parseFloat(style.fontSize) * toReference, secondary, foreground, background: bg ? hex(bg) : undefined }
+        });
+      });
+      const strokes = [...slide.querySelectorAll('line,path,polyline,polygon,rect,circle,ellipse')]
+        .filter((element) => shown(element) && !decorative(element))
+        .map((element, i) => {
+          const style = getComputedStyle(element);
+          if (!style.stroke || style.stroke === 'none' || parseFloat(style.strokeWidth) <= 0 || Number(style.strokeOpacity) === 0) return null;
+          const ctm = element.getScreenCTM ? element.getScreenCTM() : null;
+          const scale = ctm ? Math.hypot(ctm.a, ctm.b) : 1;
+          return { id: element.dataset?.qaId || element.id || ('page-' + (index + 1) + '-stroke-' + (i + 1)), stroke_px: parseFloat(style.strokeWidth) * scale * scaleToReference };
+        }).filter(Boolean);
+      return { page: Number(slide.dataset.page) || index + 1, elements, strokes };
+    });
+  })()`;
+  const result = await client.send("Runtime.evaluate", { expression, returnByValue: true });
+  if (result.exceptionDetails) throw new Error(result.exceptionDetails.description ?? result.exceptionDetails.text ?? "online-lecture geometry collection failed");
   return result.result.value;
 }
 

@@ -5,6 +5,8 @@
 > GitHub Epic: [#50](https://github.com/luochen211/ppt-ops/issues/50)
 >
 > Planning baseline: 2026-09-02, `origin/main` at `c3a42d1`
+>
+> Superseded (2026-10-12): the mandatory first/final ImageGen rule from #58 was removed by the project owner because it constrained the model's design freedom. Generated visuals are now optional on every page; see ADR 0009. The plan below is kept as history.
 
 ## 1. Next goal
 

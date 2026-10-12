@@ -40,7 +40,8 @@ for (const [number, mode] of [[6, "live_talk"], [7, "workshop"]]) {
     const folder = path.join(root, ".pptops", "builds", build.id);
     const html = await fs.readFile(path.join(folder, "html", "slides.html"), "utf8");
     assert.doesNotMatch(html.match(/<main[\s\S]*?<\/main>/)[0], /Speaker-only detail|Page 2 script/);
-    assert.match(html, /<aside id="speaker-notes" hidden/);
+    assert.match(html, /<template id="speaker-notes-data"><aside id="speaker-notes"/);
+    assert.doesNotMatch(html.replace(/<template id="speaker-notes-data">[\s\S]*?<\/template>/, ""), /Speaker-only detail|Page 2 script/);
     assert.match(html, /href="\?view=notes"/);
     assert.match(html, /&lt;script&gt;not executable&lt;\/script&gt;/);
     const zip = await JSZip.loadAsync(await fs.readFile(path.join(folder, "pptx", "slides.pptx")));
