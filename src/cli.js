@@ -10,7 +10,6 @@ import { validateProject } from "./core/validate.js";
 import { createHandoff } from "./handoff/index.js";
 import { writeMigratedProject } from "./migrations/foundation-to-v1.js";
 import { resolveReviewEvidenceDir, reviewProject, writeReviewReport } from "./review/index.js";
-import { assertBoundaryGeneratedImages } from "./visual-assets/boundary-policy.js";
 
 const APPLICATION_COMMANDS = new Set(["source-update-preview", "source-update-propose", "candidate-propose", "candidate-reconstruct-relations", "candidate-render", "candidate-diff", "candidate-accept", "candidate-reject", "candidate-auto-reject", "candidate-continue", "candidate-record-powerpoint-observation", "candidate-feedback-show", "candidate-attempts", "candidate-compare", "variant-manage", "corporate-template", "accessibility-remediate", "version-freeze", "build-create", "build-retry", "review-run", "review-record", "review-package-create", "review-package-import", "outline-source", "outline-approve", "delivery-capabilities", "delivery-select", "handoff-create"]);
 const VISUAL_ASSET_COMMANDS = new Set(["visual-asset-prepare", "visual-asset-ingest", "visual-asset-observe", "visual-asset-decide", "visual-asset-register"]);
@@ -189,7 +188,6 @@ try {
     } else if (command === "handoff") {
       await runHandoff(project, options);
     } else if (command === "deliver") {
-      await assertBoundaryGeneratedImages(project);
       const formats = csvOption(options, "formats");
       if (formats.some(format => !["html", "pptx"].includes(format))) throw new Error("deliver supports html,pptx; select PDF from an accepted formal Build instead");
       const { requireUser } = await import("./delivery/outline.js");
@@ -275,7 +273,6 @@ async function runVisualAssetCommand(command, projectDir, options) {
 }
 
 async function buildFormats(project, formats) {
-  await assertBoundaryGeneratedImages(project);
   const directory = outputDir(project);
   await fs.mkdir(directory, { recursive: true });
   const results = [];
@@ -289,7 +286,6 @@ async function buildFormats(project, formats) {
 }
 
 async function runReview(project) {
-  await assertBoundaryGeneratedImages(project);
   const report = await reviewProject(project, { htmlQa: true, evidenceDir: resolveReviewEvidenceDir(project.root) });
   const reportFile = await writeReviewReport(project, report);
   console.log(JSON.stringify({ ...report, report_file: reportFile }, null, 2));
@@ -316,7 +312,6 @@ async function runScriptReview(project, options) {
 }
 
 async function runHandoff(project, options) {
-  const boundaryImages = await assertBoundaryGeneratedImages(project);
   const { recordDeliverySelection } = await import("./delivery/selection.js");
   const { hashFile } = await import("./delivery/pdf.js");
   const { digest } = await import("./delivery/outline.js");
@@ -335,7 +330,7 @@ async function runHandoff(project, options) {
   const reportFile = await writeReviewReport(project, report);
   const sourceFiles = available.filter(item => selection.decision.formats.includes(item.format));
   sourceFiles.push({ name: "review-report.json", path: reportFile });
-  const handoff = await createHandoff(project, report, { sourceFiles, boundaryImages, deliverySelection: selection.decision });
+  const handoff = await createHandoff(project, report, { sourceFiles, deliverySelection: selection.decision });
   console.log(JSON.stringify({ ...handoff.manifest, review_report: reportFile, manifest_file: handoff.manifestFile }, null, 2));
   if (!report.passed) process.exitCode = 1;
 }

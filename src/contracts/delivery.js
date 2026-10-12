@@ -25,11 +25,9 @@ export function densityGuidanceFor(deliveryMode) {
   return DELIVERY_MODE_DENSITY_GUIDANCE[deliveryMode] ?? DEFAULT_DENSITY_GUIDANCE;
 }
 
-export function visibleCharacterCount(pageSpec, { boundary = false } = {}) {
+export function visibleCharacterCount(pageSpec) {
   const screen = pageSpec?.screen_text ?? {};
-  const values = boundary
-    ? [screen.title]
-    : [screen.title, screen.subtitle, pageSpec?.three_second_message, ...(screen.body ?? [])];
+  const values = [screen.title, screen.subtitle, pageSpec?.three_second_message, ...(screen.body ?? [])];
   return values.filter((value) => typeof value === "string").join(" ").length;
 }
 
@@ -47,7 +45,7 @@ export function inspectDeliveryModeFit(project) {
   const guidance = densityGuidanceFor(deliveryMode);
   const pages = project.pages ?? [];
   const findings = pages.flatMap((page, index) => {
-    const characters = visibleCharacterCount(page, { boundary: index === 0 || index === pages.length - 1 });
+    const characters = visibleCharacterCount(page);
     return characters > guidance.character_limit
       ? [{
           page: page.page,

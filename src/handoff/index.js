@@ -56,8 +56,7 @@ export async function createHandoff(project, reviewReport, options = {}) {
     ...(accessibility ? { accessibility } : {}),
     ...(factLedger ? { fact_ledger: factLedger } : {}),
     ...(citations ? { citations } : {}),
-    ...(scriptReview ? { script_review: scriptReview.summary } : {}),
-    ...(options.boundaryImages ? { boundary_images: options.boundaryImages.boundaries.map(({ boundary, roles, page_id, asset_id, generation_id, sha256 }) => ({ boundary, roles, page_id, asset_id, generation_id, sha256 })) } : {})
+    ...(scriptReview ? { script_review: scriptReview.summary } : {})
   };
   const manifestFile = path.join(packageDir, HANDOFF_MANIFEST_FILE);
   await fs.writeFile(manifestFile, `${JSON.stringify(manifest, null, 2)}\n`, { flag: "wx" });

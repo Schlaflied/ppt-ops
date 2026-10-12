@@ -55,8 +55,7 @@ export async function inspectPptxStructure(pptxFile, project, options = {}) {
       ...checkFonts(project, declaredFonts, page),
       ...checkDensity(project.pages[index], shapes, page, {
         ...options,
-        deliveryMode: project.project?.delivery_mode,
-        boundary: index === 0 || index === slideNames.length - 1
+        deliveryMode: project.project?.delivery_mode
       })
     ];
     findings.push(...pageFindings);
@@ -178,7 +177,7 @@ function checkDensity(pageSpec, shapes, page, options) {
   const guidance = densityGuidanceFor(options.deliveryMode);
   const characterLimit = options.characterLimit ?? guidance.character_limit;
   const shapeLimit = options.shapeLimit ?? guidance.shape_limit;
-  const characters = visibleCharacterCount(pageSpec, { boundary: options.boundary });
+  const characters = visibleCharacterCount(pageSpec);
   return characters > characterLimit || shapes.length > shapeLimit
     ? [finding(page, "density", "warning", { characters, shapes: shapes.length, character_limit: characterLimit, shape_limit: shapeLimit, delivery_mode: options.deliveryMode ?? null })] : [];
 }

@@ -16,6 +16,6 @@ The manifest pins the fact-ledger revision, source and extraction hashes, locato
 
 On-slide delivery has a fixed capacity. Overflow fails with `CITATION_REGION_OVERFLOW`; the renderer does not silently shrink citations. Appendix pages become part of that Build's page sequence. HTML and PPTX render independently from the same manifest, and PPTX citations remain native editable text.
 
-Title-only first and final pages retain the existing boundary-image contract. A visible citation bound to either boundary fails with `CITATION_BOUNDARY_CONFLICT`; choose speaker notes or an appendix instead.
+First and final pages follow the same citation rules as every other page; visible citations are allowed there.
 
 Review reports citation coverage, unresolved bibliography fields, disclosure scope, and hyperlink findings separately from fact-ledger validity. Handoff pins the same citation-manifest revision and unresolved findings.

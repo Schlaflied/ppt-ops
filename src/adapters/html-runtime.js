@@ -223,7 +223,6 @@ function deckRuntime(config) {
   function show(index) {
     state.index = clamp(index);
     slides.forEach((slide, i) => { const active = i === state.index; slide.setAttribute("aria-hidden", String(!active)); slide.toggleAttribute("inert", !active); });
-    document.body.classList.toggle("boundary-active", state.index === 0 || state.index === slides.length - 1);
     progress.value = state.index + 1;
     output.value = (state.index + 1) + " / " + slides.length;
     location.hash = "slide-" + slides[state.index].dataset.page;

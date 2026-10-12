@@ -31,14 +31,15 @@ test("accessible creation writes real language, scaled editable text, descriptio
   const zip = await JSZip.loadAsync(await fs.readFile(pptxFile));
   assert.match(await zip.file("docProps/core.xml").async("string"), /<dc:language>fr-CA<\/dc:language>/);
   const first = await zip.file("ppt/slides/slide1.xml").async("string"), second = await zip.file("ppt/slides/slide2.xml").async("string");
-  assert.match(first, /lang="fr-CA"/); assert.match(first, /sz="5100"/); assert.doesNotMatch(first, /normAutofit/); assert.match(first, /Detailed alternative with the supporting data/);
+  assert.match(first, /lang="fr-CA"/); assert.match(first, /sz="4200"/); assert.doesNotMatch(first, /normAutofit/); assert.match(first, /Detailed alternative with the supporting data/);
   assert.match(second, /lang="en-GB"/); assert.match(second, /<a:t>/);
   const before = await hashes([htmlFile, pptxFile, path.join(root, "pages.json"), path.join(root, ".pptops/metadata.sqlite")]);
   const audit = await auditStoredBuild(service.project, build.id);
   assert.deepEqual(await hashes([htmlFile, pptxFile, path.join(root, "pages.json"), path.join(root, ".pptops/metadata.sqlite")]), before);
   assert.equal(audit.build_revision, build.id);
   assert.equal(audit.artifacts.find(item => item.format === "pptx").pages[1].languages[0], "en-GB");
-  assert.ok(audit.findings.some(item => item.rule === "pptx-reading-order" && item.target.id === "page-001"));
+  assert.deepEqual(audit.artifacts.find(item => item.format === "pptx").pages[0].reading_order.filter(key => ["title", "assets"].includes(key)), ["title", "assets"]);
+  assert.equal(audit.findings.some(item => item.rule === "pptx-reading-order" && item.target.id === "page-001"), false);
   if (await findBrowser()) assert.equal(audit.findings.some(item => item.rule === "html-reading-order" && item.target.id === "page-001"), false);
   assert.equal(audit.evidence.find(item => item.kind === "assistive_technology").status, "pending");
   assert.equal(audit.evidence.find(item => item.kind === "powerpoint_accessibility_checker").status, "pending");

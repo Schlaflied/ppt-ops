@@ -20,7 +20,6 @@ import { createReviewerFeedbackPackage, importReviewerResponse } from "../review
 import { proposeAccessibilityRemediation } from "../accessibility/remediation.js";
 import { manageCorporateProfile, materializeCorporateProfile } from "../templates/corporate-profile.js";
 import { freezeAudienceVariant, manageAudienceVariants } from "../variants/lifecycle.js";
-import { assertBoundaryGeneratedImages } from "../visual-assets/boundary-policy.js";
 import { buildCitationManifest } from "../citations/manifest.js";
 import { SourceIntake } from "../sources/intake.js";
 import { compareSourceRevision } from "../sources/revision-impact.js";
@@ -324,7 +323,6 @@ export class ApplicationService {
     }));
     const errors = validateProject(project);
     if (errors.length) throw new ApplicationError("PROJECT_INVALID", "project cannot be frozen", { errors });
-    await assertBoundaryGeneratedImages(project);
     const componentHashes = Object.fromEntries(Object.entries(snapshot).map(([file, value]) => [file, hashJson(value)]));
     const snapshotHash = hashJson(snapshot);
     const existing = this.store.listEntities(this.projectId, "version").find((version) => version.snapshot_hash === snapshotHash && version.state === "frozen");
@@ -341,7 +339,6 @@ export class ApplicationService {
     const version = this.requireEntity("version", versionId);
     if (version.state !== "frozen") throw new ApplicationError("VERSION_NOT_FROZEN", "build input must be a Frozen Version");
     const frozenProject = await this.projectFromVersion(versionId);
-    await assertBoundaryGeneratedImages(frozenProject);
     const citationManifest = citations ? buildCitationManifest({ ledger: frozenProject.factLedger, sources: frozenProject.contracts.sources, pages: frozenProject.contracts.pages, decision: citations.decision, metadata: citations.metadata }) : undefined;
     const id = nextId("build", this.store.listBuilds(this.projectId));
     this.store.enqueueBuild(createV1Entity("build", id, { project_id: this.projectId, version_id: versionId, state: "queued", targets, attempts: [], config: { ...(version.variant ? { variant: version.variant } : {}), ...(version.corporate_profile ? { corporate_profile: version.corporate_profile } : {}), ...(citationManifest ? { citation_manifest: citationManifest } : {}) } }));
@@ -358,7 +355,6 @@ export class ApplicationService {
     if (build.state !== "succeeded") throw new ApplicationError("BUILD_NOT_SUCCEEDED", "review requires a succeeded build");
     const frozenProject = await this.projectFromVersion(build.version_id);
     if (build.config?.citation_manifest) frozenProject.citationManifest = build.config.citation_manifest;
-    await assertBoundaryGeneratedImages(frozenProject);
     const pptxFile = build.targets.includes("pptx") ? resolveProjectPath(this.project.root, path.join(".pptops", "builds", buildId, "pptx", "slides.pptx")) : undefined;
     const htmlFile = build.targets.includes("html") ? resolveProjectPath(this.project.root, path.join(".pptops", "builds", buildId, "html", "slides.html")) : undefined;
     const report = await reviewProject(frozenProject, { buildRevision: build.id, pptxFile, htmlFile, htmlQa: Boolean(htmlFile), evidenceDir: resolveReviewEvidenceDir(this.project.root, `build-${buildId}`) });
@@ -467,7 +463,6 @@ export class ApplicationService {
     const review = this.requireEntity("review", reviewId);
     if (review.state !== "accepted" || review.build_id !== buildId) throw new ApplicationError("REVIEW_NOT_ACCEPTED", "handoff requires an accepted review for the selected build");
     const frozenProject = await this.projectFromVersion(this.requireBuild(buildId).version_id);
-    const boundaryImages = await assertBoundaryGeneratedImages(frozenProject);
     if (!review.report_file) throw new ApplicationError("REVIEW_REPORT_REQUIRED", "handoff requires the selected immutable Review report");
     const reportBytes = await fs.readFile(resolveProjectPath(this.project.root, review.report_file));
     const report = JSON.parse(reportBytes);
@@ -489,7 +484,7 @@ export class ApplicationService {
       if (!expected || expected.sha256 !== selection.pdf_source.sha256 || expected.file !== selection.pdf_source.file) throw new ApplicationError("PDF_SOURCE_CHANGED", "PDF source is no longer eligible; select again after review");
       sourceFiles.push(await exportPresentationPdf(this.project.root, selection));
     }
-    const packageResult = await createHandoff(frozenProject, report, { sourceFiles, boundaryImages, deliverySelection: selection, variant: build.config?.variant, corporateProfile: build.config?.corporate_profile });
+    const packageResult = await createHandoff(frozenProject, report, { sourceFiles, deliverySelection: selection, variant: build.config?.variant, corporateProfile: build.config?.corporate_profile });
     const id = nextId("handoff", this.store.listEntities(this.projectId, "handoff"));
     let handoff = this.store.createHandoff(this.projectId, createV1Entity("handoff", id, { build_id: buildId, review_id: reviewId, ...(build.config?.variant ? { variant: build.config?.variant } : {}), ...(build.config?.corporate_profile ? { corporate_profile: build.config.corporate_profile } : {}), state: "preparing", files: packageResult.manifest.outputs }));
     for (const state of ["packaged", "verified"]) handoff = this.store.saveEntity(this.projectId, { ...stripRevision(handoff), state });
@@ -519,7 +514,6 @@ export class ApplicationService {
     try {
       const project = await this.projectFromVersion(claimed.version_id);
       if (claimed.config?.citation_manifest) project.citationManifest = claimed.config.citation_manifest;
-      await assertBoundaryGeneratedImages(project);
       this.store.transitionBuild(buildId, "rendering");
       const artifacts = [];
       for (const target of claimed.targets) {
