@@ -63,6 +63,13 @@ export function createPptOpsMcpServer(projectDir) {
     const inputFile = await resolveMcpSourceFile(projectDir, source_file);
     return withWriteService(projectDir, (service) => service.importSource(inputFile));
   });
+  registerStatefulTool(server, "pptops_build_create", "从已冻结 Version 创建异步 Build；立即返回 Build ID，并用 pptops_build_status 查询进度。", z.object({
+    version_id: idSchema("Version"), targets: z.array(z.enum(["html", "pptx"])).min(1), request_id: idSchema("Request")
+  }).strict(), async ({ version_id, targets, request_id }) => {
+    const queued = await withWriteService(projectDir, (service) => service.queueBuild({ versionId: version_id, targets, requestId: request_id }));
+    if (!queued.reused || queued.build.state === "queued") scheduleBuild(projectDir, queued.build.id);
+    return { build_id: queued.build.id, state: queued.build.state, reused: queued.reused, status_tool: "pptops_build_status" };
+  });
 
   return server;
 }
@@ -120,6 +127,13 @@ export async function resolveMcpSourceFile(projectDir, sourceFile) {
 }
 
 function outside(root, candidate) { const relative = path.relative(root, candidate); return relative === ".." || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative); }
+
+function scheduleBuild(projectDir, buildId) {
+  setImmediate(async () => {
+    try { await withWriteService(projectDir, (service) => service.runBuild(buildId)); }
+    catch (error) { console.error(JSON.stringify(sanitizeError(error))); }
+  });
+}
 
 function idSchema(label) { return z.string().trim().min(1).describe(`${label} ID`); }
 
