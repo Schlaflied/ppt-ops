@@ -11,7 +11,7 @@ import { createHandoff } from "./handoff/index.js";
 import { writeMigratedProject } from "./migrations/foundation-to-v1.js";
 import { resolveReviewEvidenceDir, reviewProject, writeReviewReport } from "./review/index.js";
 
-const APPLICATION_COMMANDS = new Set(["refinement-inspect", "refinement-scope-propose", "refinement-candidate-create", "refinement-candidate-review", "refinement-candidate-decide", "source-update-preview", "source-update-propose", "candidate-propose", "candidate-reconstruct-relations", "candidate-render", "candidate-diff", "candidate-accept", "candidate-reject", "candidate-auto-reject", "candidate-continue", "candidate-record-powerpoint-observation", "candidate-feedback-show", "candidate-attempts", "candidate-compare", "variant-manage", "corporate-template", "accessibility-remediate", "version-freeze", "build-create", "build-retry", "review-run", "review-record", "review-package-create", "review-package-import", "outline-source", "outline-approve", "delivery-capabilities", "delivery-select", "handoff-create"]);
+const APPLICATION_COMMANDS = new Set(["refinement-inspect", "refinement-scope-propose", "refinement-candidate-create", "refinement-candidate-review", "refinement-powerpoint-acceptance", "refinement-candidate-decide", "source-update-preview", "source-update-propose", "candidate-propose", "candidate-reconstruct-relations", "candidate-render", "candidate-diff", "candidate-accept", "candidate-reject", "candidate-auto-reject", "candidate-continue", "candidate-record-powerpoint-observation", "candidate-feedback-show", "candidate-attempts", "candidate-compare", "variant-manage", "corporate-template", "accessibility-remediate", "version-freeze", "build-create", "build-retry", "review-run", "review-record", "review-package-create", "review-package-import", "outline-source", "outline-approve", "delivery-capabilities", "delivery-select", "handoff-create"]);
 const VISUAL_ASSET_COMMANDS = new Set(["visual-asset-prepare", "visual-asset-ingest", "visual-asset-observe", "visual-asset-decide", "visual-asset-register"]);
 const HELP = `PPT-Ops 1.0
 
@@ -24,6 +24,7 @@ Usage:
   pptops refinement-scope-propose <project-dir> --source <id> --payload <json>
   pptops refinement-candidate-create <project-dir> --source <id> --scope <id> --payload <json>
   pptops refinement-candidate-review <project-dir> --candidate <id>
+  pptops refinement-powerpoint-acceptance <project-dir> --candidate <id> --payload <json>
   pptops refinement-candidate-decide <project-dir> --candidate <id> --decision <accept|reject> --actor <id> --expected-revision <n>
   pptops visual-preference <repository-root> --action <inspect|nominate|observe|propose|feedback|decide|revise|remove> [--payload <json>]
   pptops design-context <project-dir> [--repository-root <path>]
@@ -233,6 +234,7 @@ async function runApplicationCommand(command, projectDir, options) {
       return await service.createPptxRefinementCandidate({ sourceId: required(options, "source"), scopeId: required(options, "scope"), changes: payload.changes, actor: payload.actor });
     }
     if (command === "refinement-candidate-review") return await service.reviewPptxRefinementCandidate(required(options, "candidate"));
+    if (command === "refinement-powerpoint-acceptance") return await service.recordPptxRefinementPowerPointAcceptance(required(options, "candidate"), jsonOption(options, "payload"));
     if (command === "refinement-candidate-decide") return await service.decidePptxRefinementCandidate(required(options, "candidate"), { decision: required(options, "decision"), actor: required(options, "actor"), expectedRevision: integerOption(options, "expected-revision") });
     if (command === "source-update-preview") return service.previewSourceUpdate(required(options, "source"), required(options, "file"));
     if (command === "source-update-propose") return service.proposeSourceUpdateCandidate({ sourceId: required(options, "source"), newSourceId: required(options, "new-source"), pageId: required(options, "page-id"), patch: jsonOption(options, "patch"), baseRevision: integerOption(options, "base-revision") });

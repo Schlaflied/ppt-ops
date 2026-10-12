@@ -142,6 +142,10 @@ test("Stage 2 creates an immutable scoped Candidate and preserves the original P
     assert.deepEqual(reviewed.diff.changed_parts, ["ppt/slides/slide1.xml"]);
     assert.equal(await fs.readFile(path.join(projectDir, reviewed.preview_file), "utf8").then((value) => value.includes("Scoped refinement preview")), true);
     await assert.rejects(service.createPptxRefinementCandidate({ ...request, changes: [{ slide: 1, object_id: textBox.id, properties: { fill_color: "FF0000" } }] }), { code: "REFINEMENT_PROPERTY_FORBIDDEN" });
+    await assert.rejects(service.decidePptxRefinementCandidate(first.candidate.id, { decision: "accept", actor: "user:syna", expectedRevision: 0 }), { code: "REFINEMENT_POWERPOINT_ACCEPTANCE_REQUIRED" });
+    await assert.rejects(service.recordPptxRefinementPowerPointAcceptance(first.candidate.id, { candidate_id: first.candidate.id, candidate_sha256: first.candidate.candidate_sha256, application: "Microsoft PowerPoint", real_presentation: false, case_id: "synthetic-fixture", actor: "user:syna", steps: { opened: true, edited: true, saved: true, reopened: true } }), { code: "REFINEMENT_REAL_CASE_REQUIRED" });
+    const accepted = await service.recordPptxRefinementPowerPointAcceptance(first.candidate.id, { candidate_id: first.candidate.id, candidate_sha256: first.candidate.candidate_sha256, application: "Microsoft PowerPoint", real_presentation: true, case_id: "authorized-case-001", actor: "user:syna", steps: { opened: true, edited: true, saved: true, reopened: true }, notes: "Editable round trip completed." });
+    assert.equal(accepted.acceptance.accepted, true);
     const decided = await service.decidePptxRefinementCandidate(first.candidate.id, { decision: "accept", actor: "user:syna", expectedRevision: 0 });
     assert.equal(decided.decision.state, "accepted");
     assert.equal(decided.version.delivery_state, "versioned");

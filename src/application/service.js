@@ -29,6 +29,7 @@ import { createRefinementScope, inspectRefinementPptx, stableHash } from "../ref
 import { applyRefinementPptx } from "../refinement/pptx-editor.js";
 import { reviewRefinementCandidate } from "../refinement/pptx-diff.js";
 import { createRefinementDecision, createRefinementVersion } from "../refinement/lifecycle.js";
+import { validatePowerPointAcceptance } from "../refinement/powerpoint-acceptance.js";
 
 const CONTRACT_FILES = ["project.json", "sources.json", "outline.json", "pages.json", "theme.json", "assets.json", "templates.json"];
 const COLLECTIONS = { source: "sources", page_spec: "pages", asset: "assets", template: "templates" };
@@ -189,6 +190,7 @@ export class ApplicationService {
     const diff = await readRefinementJson(resolveProjectPath(this.project.root, path.join(base, "scoped-diff.json")), "REFINEMENT_REVIEW_REQUIRED", "review the refinement Candidate before decision");
     const decisionFile = resolveProjectPath(this.project.root, path.join(base, "decision.json"));
     const current = await readOptionalJson(decisionFile);
+    if (decision === "accept") await readRefinementJson(resolveProjectPath(this.project.root, path.join(base, "powerpoint-acceptance.json")), "REFINEMENT_POWERPOINT_ACCEPTANCE_REQUIRED", "record a real Microsoft PowerPoint round trip before acceptance");
     const record = createRefinementDecision({ candidate, diff, decision, actor, expectedRevision, current });
     await atomicWriteJson(decisionFile, record);
     const version = createRefinementVersion(candidate, record);
@@ -199,6 +201,16 @@ export class ApplicationService {
     const manifest = { ...version, artifact: artifactRelative.replaceAll("\\", "/") };
     await writeImmutableOrVerify(resolveProjectPath(this.project.root, manifestRelative), manifest);
     return { decision: record, version: manifest, manifest_file: manifestRelative };
+  }
+
+  async recordPptxRefinementPowerPointAcceptance(candidateId, input) {
+    const base = path.join(".pptops", "refinement", "candidates", candidateId);
+    const candidate = await readRefinementJson(resolveProjectPath(this.project.root, path.join(base, "evidence.json")), "REFINEMENT_CANDIDATE_REQUIRED", "unknown refinement Candidate");
+    await readRefinementJson(resolveProjectPath(this.project.root, path.join(base, "scoped-diff.json")), "REFINEMENT_REVIEW_REQUIRED", "run scoped review before PowerPoint acceptance");
+    const acceptance = validatePowerPointAcceptance(candidate, input);
+    const relative = path.join(base, "powerpoint-acceptance.json");
+    await writeImmutableOrVerify(resolveProjectPath(this.project.root, relative), acceptance);
+    return { acceptance, acceptance_file: relative };
   }
 
   async previewSourceUpdate(sourceId, inputFile) {
