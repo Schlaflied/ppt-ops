@@ -4,6 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { analyzeRenderedRhythm } from "./rhythm.js";
+import { analyzeOnlineLecture } from "./online-lecture.js";
 
 const DEFAULT_TIMEOUT_MS = 30000;
 const PROFILE_CLEANUP_MAX_ATTEMPTS = 25;
@@ -106,7 +107,15 @@ export function analyzeHtmlGeometry(pages, options = {}) {
 
 export async function inspectHtmlPresentation(options = {}) {
   if (!options.browserPath && !await findBrowser()) return { status: "degraded", reason: "Google Chrome or Chromium is unavailable", page_count: 0, annotated_page_count: 0, findings: [], pages: [] };
-  return withHtmlPage(options, async (client, executable, file) => ({ ...analyzeHtmlGeometry(await collectGeometry(client)), browser: executable, html_file: file }));
+  return withHtmlPage(options, async (client, executable, file) => {
+    const result = { ...analyzeHtmlGeometry(await collectGeometry(client)), browser: executable, html_file: file };
+    if (!options.onlineLecture) return result;
+    // Online-lecture checks use rendered DOM boxes, computed font sizes and SVG strokes.
+    const online = analyzeOnlineLecture(await collectOnlineGeometry(client), options.onlineLecture);
+    const findings = [...result.findings, ...online.findings];
+    const pages = result.pages.map((page) => ({ ...page, finding_count: findings.filter((item) => findingTouchesPage(item, page.page)).length }));
+    return { ...result, findings, pages, online_lecture: online };
+  });
 }
 
 export async function printHtmlPdf({ htmlFile, browserPath, timeoutMs, presentation = false }) {
@@ -345,6 +354,62 @@ async function collectGeometry(client) {
   })()`;
   const result = await client.send("Runtime.evaluate", { expression, returnByValue: true });
   if (result.exceptionDetails) throw new Error(result.exceptionDetails.description ?? result.exceptionDetails.text ?? "HTML geometry collection failed");
+  return result.result.value;
+}
+
+async function collectOnlineGeometry(client) {
+  const expression = `(()=>{
+    const parse = (value) => { const m = String(value).match(/rgba?\\(([^)]+)\\)/); if (!m) return null; const p = m[1].split(',').map(Number); return { rgb: p.slice(0, 3), a: p.length > 3 ? p[3] : 1 }; };
+    const hex = (rgb) => '#' + rgb.map((v) => Math.round(v).toString(16).padStart(2, '0')).join('').toUpperCase();
+    const backgroundOf = (element, slide) => {
+      for (let node = element; node; node = node.parentElement) {
+        const style = getComputedStyle(node);
+        if (style.backgroundImage && style.backgroundImage !== 'none') return null;
+        const color = parse(style.backgroundColor);
+        if (color && color.a >= 0.99) return color.rgb;
+        if (node === slide) break;
+      }
+      return [255, 255, 255];
+    };
+    return [...document.querySelectorAll('.slide')].map((slide, index) => {
+      const sr = slide.getBoundingClientRect();
+      const toReference = 1080 / (slide.offsetHeight || 1080);
+      const scaleToReference = 1080 / (sr.height || 1080);
+      const norm = (element) => { const r = element.getBoundingClientRect(); return { x: (r.left - sr.left) / sr.width, y: (r.top - sr.top) / sr.height, width: r.width / sr.width, height: r.height / sr.height }; };
+      const shown = (element) => getComputedStyle(element).display !== 'none' && element.getBoundingClientRect().width > 0;
+      const decorative = (element) => element.closest('[data-qa-role="decorative"],[aria-hidden="true"]');
+      const elements = [];
+      for (const element of slide.querySelectorAll('[data-qa-role="content"],[data-qa-role="node"]')) {
+        if (shown(element)) elements.push({ id: element.dataset.qaId || element.id || ('page-' + (index + 1) + '-qa-' + elements.length), rect: norm(element), key: true });
+      }
+      const texts = [...slide.querySelectorAll('h1,h2,h3,h4,h5,h6,p,li,dt,dd,th,td,figcaption,span,small,text')]
+        .filter((element) => shown(element) && [...element.childNodes].some((node) => node.nodeType === 3 && node.textContent.trim()));
+      texts.forEach((element, i) => {
+        const style = getComputedStyle(element);
+        const fg = parse(style.color);
+        const bg = backgroundOf(element, slide);
+        const secondary = Boolean(element.closest('footer,small,figcaption,.slide-footer,.slide-number,.citation,.citations,[data-qa-text-role="secondary"]'));
+        const foreground = fg && bg ? hex(fg.rgb.map((v, k) => v * fg.a * Number(style.opacity || 1) + bg[k] * (1 - fg.a * Number(style.opacity || 1)))) : undefined;
+        elements.push({
+          id: element.dataset.qaId || element.id || ('page-' + (Number(slide.dataset.page) || index + 1) + '-text-' + (i + 1)),
+          rect: norm(element), key: !decorative(element) && !element.closest('.slide-number'),
+          text: { font_px: parseFloat(style.fontSize) * toReference, secondary, foreground, background: bg ? hex(bg) : undefined }
+        });
+      });
+      const strokes = [...slide.querySelectorAll('line,path,polyline,polygon,rect,circle,ellipse')]
+        .filter((element) => shown(element) && !decorative(element))
+        .map((element, i) => {
+          const style = getComputedStyle(element);
+          if (!style.stroke || style.stroke === 'none' || parseFloat(style.strokeWidth) <= 0 || Number(style.strokeOpacity) === 0) return null;
+          const ctm = element.getScreenCTM ? element.getScreenCTM() : null;
+          const scale = ctm ? Math.hypot(ctm.a, ctm.b) : 1;
+          return { id: element.dataset?.qaId || element.id || ('page-' + (index + 1) + '-stroke-' + (i + 1)), stroke_px: parseFloat(style.strokeWidth) * scale * scaleToReference };
+        }).filter(Boolean);
+      return { page: Number(slide.dataset.page) || index + 1, elements, strokes };
+    });
+  })()`;
+  const result = await client.send("Runtime.evaluate", { expression, returnByValue: true });
+  if (result.exceptionDetails) throw new Error(result.exceptionDetails.description ?? result.exceptionDetails.text ?? "online-lecture geometry collection failed");
   return result.result.value;
 }
 

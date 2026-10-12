@@ -1,5 +1,6 @@
 import { validateDiagram } from "../layout/diagram.js";
 import { DELIVERY_MODES, INTERACTION_KINDS } from "./delivery.js";
+import { validateOnlineLectureProjectFields } from "./online-lecture.js";
 import { validateAccessibilityProfile } from "../accessibility/index.js";
 import { validateScriptPageFields, validateScriptReviewConfig, validateScriptStructure, validateTalkBudget } from "./talk-budget.js";
 
@@ -64,6 +65,7 @@ const validators = {
     requireIdList(value.asset_ids, "asset_ids", errors, true);
     if (value.outputs !== undefined) requireEnumList(value.outputs, "outputs", ["html", "pptx", "pdf", "png"], errors);
     if (value.delivery_mode !== undefined) requireEnum(value, "delivery_mode", DELIVERY_MODES, errors);
+    errors.push(...validateOnlineLectureProjectFields(value));
     for (const error of validateAccessibilityProfile(value.accessibility_profile)) errors.push(error);
     errors.push(...validateTalkBudget(value.talk_budget), ...validateScriptReviewConfig(value.script_review));
   },
