@@ -137,6 +137,10 @@ test("Stage 2 creates an immutable scoped Candidate and preserves the original P
     const slide = await archive.file("ppt/slides/slide1.xml").async("string");
     assert.match(slide, /<a:off x="120" y="240"\/>/);
     assert.match(slide, /<a:rPr sz="2400"\/>/);
+    const reviewed = await service.reviewPptxRefinementCandidate(first.candidate.id);
+    assert.equal(reviewed.diff.passed, true);
+    assert.deepEqual(reviewed.diff.changed_parts, ["ppt/slides/slide1.xml"]);
+    assert.equal(await fs.readFile(path.join(projectDir, reviewed.preview_file), "utf8").then((value) => value.includes("Scoped refinement preview")), true);
     await assert.rejects(service.createPptxRefinementCandidate({ ...request, changes: [{ slide: 1, object_id: textBox.id, properties: { fill_color: "FF0000" } }] }), { code: "REFINEMENT_PROPERTY_FORBIDDEN" });
   } finally { service.close(); }
 });
@@ -146,7 +150,7 @@ async function refinementPptx() {
   zip.file("[Content_Types].xml", "<Types/>");
   zip.file("ppt/presentation.xml", "<p:presentation/>");
   zip.file("ppt/slides/slide1.xml", `<p:sld><p:cSld><p:spTree>
-    <p:sp><p:nvSpPr><p:cNvPr id="2" name="Title"/></p:nvSpPr><p:spPr><a:xfrm><a:off x="100" y="200"/><a:ext cx="300" cy="400"/></a:xfrm></p:spPr><p:txBody><a:p><a:r><a:t>Confidential result 42</a:t></a:r></a:p></p:txBody></p:sp>
+    <p:sp><p:nvSpPr><p:cNvPr id="2" name="Title"/></p:nvSpPr><p:spPr><a:xfrm><a:off x="100" y="200"/><a:ext cx="300" cy="400"/></a:xfrm></p:spPr><p:txBody><a:p><a:r><a:rPr sz="1800"/><a:t>Confidential result 42</a:t></a:r></a:p></p:txBody></p:sp>
     <p:pic><p:nvPicPr><p:cNvPr id="3" name="Photo"/></p:nvPicPr><p:spPr><a:xfrm><a:off x="500" y="600"/><a:ext cx="700" cy="800"/></a:xfrm></p:spPr></p:pic>
   </p:spTree></p:cSld><p:timing/></p:sld>`);
   zip.file("ppt/slides/slide2.xml", `<p:sld><p:cSld><p:spTree><p:graphicFrame><p:nvGraphicFramePr><p:cNvPr id="4" name="Chart"/></p:nvGraphicFramePr><a:graphic><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/chart"/></a:graphic></p:graphicFrame></p:spTree></p:cSld></p:sld>`);

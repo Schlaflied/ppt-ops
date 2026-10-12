@@ -27,6 +27,7 @@ import { multimodalCapabilities, SourceIntake } from "../sources/intake.js";
 import { compareSourceRevision } from "../sources/revision-impact.js";
 import { createRefinementScope, inspectRefinementPptx, stableHash } from "../refinement/pptx-inspection.js";
 import { applyRefinementPptx } from "../refinement/pptx-editor.js";
+import { reviewRefinementCandidate } from "../refinement/pptx-diff.js";
 
 const CONTRACT_FILES = ["project.json", "sources.json", "outline.json", "pages.json", "theme.json", "assets.json", "templates.json"];
 const COLLECTIONS = { source: "sources", page_spec: "pages", asset: "assets", template: "templates" };
@@ -167,6 +168,18 @@ export class ApplicationService {
     await writeImmutableBytesOrVerify(resolveProjectPath(this.project.root, artifactRelative), result.bytes);
     await writeImmutableOrVerify(resolveProjectPath(this.project.root, evidenceRelative), evidence);
     return { candidate: evidence, candidate_file: artifactRelative, evidence_file: evidenceRelative };
+  }
+
+  async reviewPptxRefinementCandidate(candidateId) {
+    const base = path.join(".pptops", "refinement", "candidates", candidateId);
+    const evidence = await readRefinementJson(resolveProjectPath(this.project.root, path.join(base, "evidence.json")), "REFINEMENT_CANDIDATE_REQUIRED", "create a refinement Candidate before review");
+    const scope = await readRefinementJson(resolveProjectPath(this.project.root, evidence.scope_file), "REFINEMENT_SCOPE_REQUIRED", "Candidate Scope evidence is missing");
+    const source = this.requireEntity("source", evidence.source.id);
+    const result = await reviewRefinementCandidate(resolveProjectPath(this.project.root, source.file), resolveProjectPath(this.project.root, evidence.artifact), source, scope, evidence);
+    const reportRelative = path.join(base, "scoped-diff.json"), previewRelative = path.join(base, "before-after.html");
+    await writeImmutableOrVerify(resolveProjectPath(this.project.root, reportRelative), result.report);
+    await writeImmutableTextOrVerify(resolveProjectPath(this.project.root, previewRelative), result.preview);
+    return { diff: result.report, diff_file: reportRelative, preview_file: previewRelative };
   }
 
   async previewSourceUpdate(sourceId, inputFile) {
@@ -705,6 +718,11 @@ async function writeImmutableBytesOrVerify(file, value) {
     if (error.code !== "EEXIST") throw error;
     if (!(await fs.readFile(file)).equals(value)) throw new ApplicationError("IMMUTABLE_EVIDENCE_CONFLICT", `immutable artifact differs: ${path.basename(file)}`);
   }
+}
+async function writeImmutableTextOrVerify(file, value) {
+  await fs.mkdir(path.dirname(file), { recursive: true });
+  try { await fs.writeFile(file, value, { flag: "wx" }); }
+  catch (error) { if (error.code !== "EEXIST") throw error; if (await fs.readFile(file, "utf8") !== value) throw new ApplicationError("IMMUTABLE_EVIDENCE_CONFLICT", `immutable preview differs: ${path.basename(file)}`); }
 }
 async function readRefinementJson(file, code, message) {
   try { return JSON.parse(await fs.readFile(file, "utf8")); }
