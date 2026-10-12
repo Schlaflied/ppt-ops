@@ -13,3 +13,7 @@ Stage 1 不调用任何外部模型，也没有上传路径。manifest 明确记
 ## Stage 2：本地图片/OCR 证据
 
 `createImageOcrEvidence` 接收本地 OCR 引擎产出的区域结果，要求引擎明确声明 `execution: local`，并把页码、归一化区域、文字、置信度和不可读状态规范化为确定性证据。低于 0.8 的结果进入 `low_confidence`，不可读区域进入 `unreadable`；两者都不会成为用户确认事实。本阶段不包含云端上传路径，也不把 OCR 文本自动写入 Page Spec。
+
+## Stage 3：本地音频转写证据
+
+`createAudioTranscriptEvidence` 规范化本地 ASR 结果，保留有序且不重叠的毫秒时间范围、讲者、置信度、重叠说话和听不清状态。未知讲者、低置信度及听不清片段都保留为待复核证据；本阶段不声称完成讲者身份验证，也不允许云端执行声明。

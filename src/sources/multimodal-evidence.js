@@ -14,6 +14,25 @@ export function createImageOcrEvidence({ source, engine, regions }) {
   return { ...payload, id: `image-ocr-${digest(payload).slice(0, 16)}` };
 }
 
+export function createAudioTranscriptEvidence({ source, engine, segments }) {
+  requireMedia(source, "audio");
+  requireLocalEngine(engine);
+  if (!Array.isArray(segments) || segments.length === 0) throw coded("TRANSCRIPT_SEGMENTS_REQUIRED", "transcription requires at least one segment");
+  let previousEnd = 0;
+  const normalized = segments.map((segment, index) => {
+    const start = Number(segment.start_ms), end = Number(segment.end_ms), confidence = Number(segment.confidence);
+    if (!Number.isInteger(start) || !Number.isInteger(end) || start < 0 || end <= start || start < previousEnd) throw coded("TRANSCRIPT_TIME_RANGE_INVALID", `segments[${index}] requires ordered non-overlapping millisecond ranges`);
+    if (!Number.isFinite(confidence) || confidence < 0 || confidence > 1) throw coded("TRANSCRIPT_CONFIDENCE_INVALID", `segments[${index}].confidence must be between 0 and 1`);
+    previousEnd = end;
+    const text = String(segment.text ?? "");
+    const speaker = String(segment.speaker ?? "unknown").trim() || "unknown";
+    const state = segment.inaudible === true ? "inaudible" : confidence < 0.8 || speaker === "unknown" ? "low_confidence" : "pending_review";
+    return { id: `transcript-${index + 1}`, locator: { start_ms: start, end_ms: end }, text, speaker, confidence, evidence_kind: "transcription", state, ...(segment.overlap === true ? { overlap: true } : {}) };
+  });
+  const payload = { contract_version: "1.0", kind: "audio_transcript_evidence", source_id: source.id, source_sha256: source.sha256, engine: cleanEngine(engine), processing: "local_only", external_authorized: false, segments: normalized, review: reviewSummary(normalized) };
+  return { ...payload, id: `audio-transcript-${digest(payload).slice(0, 16)}` };
+}
+
 function normalizeImageRegion(region, index) {
   const locator = region?.locator;
   if (!Number.isInteger(locator?.page) || locator.page < 1) throw coded("OCR_LOCATOR_INVALID", `regions[${index}].locator.page must be positive`);

@@ -1,8 +1,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { createImageOcrEvidence } from "../src/sources/multimodal-evidence.js";
+import { createAudioTranscriptEvidence, createImageOcrEvidence } from "../src/sources/multimodal-evidence.js";
 
 const image = { id: "source-image", sha256: "a".repeat(64), media_kind: "image" };
+const audio = { id: "source-audio", sha256: "b".repeat(64), media_kind: "audio" };
 
 test("Stage 2 records deterministic local OCR evidence with page and region locators", () => {
   const input = { source: image, engine: { name: "fixture-ocr", version: "1", execution: "local" }, regions: [
@@ -15,6 +16,26 @@ test("Stage 2 records deterministic local OCR evidence with page and region loca
   assert.equal(first.external_authorized, false);
   assert.deepEqual(first.regions.map(({ state }) => state), ["pending_review", "unreadable"]);
   assert.equal(first.review.state, "needs_review");
+});
+
+test("Stage 3 records ordered local transcripts with speakers, overlap, and review states", () => {
+  const input = { source: audio, engine: { name: "fixture-asr", version: "1", execution: "local" }, segments: [
+    { start_ms: 0, end_ms: 1200, text: "Report the hazard", speaker: "speaker-1", confidence: 0.94 },
+    { start_ms: 1200, end_ms: 1800, text: "", speaker: "unknown", confidence: 0.3, inaudible: true, overlap: true }
+  ] };
+  const result = createAudioTranscriptEvidence(input);
+  assert.equal(result.id, createAudioTranscriptEvidence(input).id);
+  assert.deepEqual(result.segments.map(({ state }) => state), ["pending_review", "inaudible"]);
+  assert.equal(result.segments[1].overlap, true);
+  assert.equal(result.review.state, "needs_review");
+});
+
+test("Stage 3 rejects cloud engines, wrong media, overlapping ranges, and invalid confidence", () => {
+  const valid = { source: audio, engine: { name: "asr", version: "1", execution: "local" }, segments: [{ start_ms: 0, end_ms: 1000, text: "x", speaker: "speaker-1", confidence: 1 }] };
+  assert.throws(() => createAudioTranscriptEvidence({ ...valid, engine: { ...valid.engine, execution: "cloud" } }), (error) => error.code === "LOCAL_ENGINE_REQUIRED");
+  assert.throws(() => createAudioTranscriptEvidence({ ...valid, source: image }), (error) => error.code === "SOURCE_MEDIA_MISMATCH");
+  assert.throws(() => createAudioTranscriptEvidence({ ...valid, segments: [...valid.segments, { ...valid.segments[0], start_ms: 500, end_ms: 1500 }] }), (error) => error.code === "TRANSCRIPT_TIME_RANGE_INVALID");
+  assert.throws(() => createAudioTranscriptEvidence({ ...valid, segments: [{ ...valid.segments[0], confidence: -1 }] }), (error) => error.code === "TRANSCRIPT_CONFIDENCE_INVALID");
 });
 
 test("Stage 2 rejects cloud engines, wrong sources, invalid regions, and confidence", () => {
