@@ -108,6 +108,19 @@ test("import persists an extracted source and reports hash deduplication", async
   assert.equal(second.source.id, first.source.id);
 });
 
+test("import keeps working for foundation projects", async (t) => {
+  const parent = await fs.mkdtemp(path.join(os.tmpdir(), "pptops-import-foundation-"));
+  const project = path.join(parent, "project");
+  const source = path.join(parent, "source.md");
+  t.after(() => fs.rm(parent, { recursive: true, force: true }));
+  await fs.cp("examples/demo-project", project, { recursive: true });
+  await fs.writeFile(source, "# Evidence\nOne verified fact.\n");
+  const result = JSON.parse((await runCli("import", project, "--file", source)).stdout);
+  assert.equal(result.duplicate, false);
+  const capabilities = JSON.parse((await runCli("source-capabilities", project)).stdout);
+  assert.ok(capabilities.capabilities);
+});
+
 function runCli(...args) {
   return execFileAsync(process.execPath, [cli, ...args], { encoding: "utf8" });
 }

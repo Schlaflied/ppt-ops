@@ -158,12 +158,17 @@ try {
 
     if (["import", "source-capabilities"].includes(command)) {
       if (command === "import" && !options.file) throw new Error("import requires --file <supported-source>");
-      const { ApplicationService } = await import("./application/service.js");
-      const service = await ApplicationService.open(project.root);
-      try {
-        const result = command === "import" ? await service.importSource(options.file) : service.sourceIntakeCapabilities();
-        console.log(JSON.stringify(command === "import" ? { command, project: project.project.name, duplicate: result.duplicate, source: result.source, extracted: result.extracted } : { command, project: project.project.name, capabilities: result }, null, 2));
-      } finally { service.close(); }
+      const [{ InfrastructureStore }, { SourceIntake, multimodalCapabilities }] = await Promise.all([import("./infrastructure/store.js"), import("./sources/intake.js")]);
+      if (command === "source-capabilities") {
+        console.log(JSON.stringify({ command, project: project.project.name, capabilities: multimodalCapabilities() }, null, 2));
+      } else {
+        const store = new InfrastructureStore(path.join(project.root, ".pptops", "metadata.sqlite"));
+        try {
+          store.registerProject({ id: project.project.name, root: project.root, title: project.project.title });
+          const result = await new SourceIntake({ projectRoot: project.root, store, projectId: project.project.name }).importFile(options.file);
+          console.log(JSON.stringify({ command, project: project.project.name, duplicate: result.duplicate, source: result.source, extracted: result.extracted }, null, 2));
+        } finally { store.close(); }
+      }
     } else if (command === "accessibility-audit") {
       const { auditAccessibility } = await import("./accessibility/index.js");
       const { auditStoredBuild, auditAccessibilityArtifacts } = await import("./accessibility/artifacts.js");
