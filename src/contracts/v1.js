@@ -1,5 +1,5 @@
 import { validateDiagram } from "../layout/diagram.js";
-import { DELIVERY_MODES, INTERACTION_KINDS } from "./delivery.js";
+import { DELIVERY_MODES, INTERACTION_KINDS, validateDeliveryFeedback } from "./delivery.js";
 import { validateOnlineLectureProjectFields } from "./online-lecture.js";
 import { validateAccessibilityProfile } from "../accessibility/index.js";
 import { validateScriptPageFields, validateScriptReviewConfig, validateScriptStructure, validateTalkBudget } from "./talk-budget.js";
@@ -244,6 +244,7 @@ function validateDeliveryFields(value, errors) {
   }
   if (value.speaker_notes !== undefined && !hasText(value.speaker_notes)) errors.push("speaker_notes must be a non-empty string");
   if (value.speaker_note_intent !== undefined && !hasText(value.speaker_note_intent)) errors.push("speaker_note_intent must be a non-empty string");
+  errors.push(...validateDeliveryFeedback(value.delivery_feedback));
   if (value.audience_interaction !== undefined) {
     if (!isObject(value.audience_interaction)) errors.push("audience_interaction must be an object");
     else {

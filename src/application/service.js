@@ -6,13 +6,15 @@ import { buildPptx } from "../adapters/pptx.js";
 import { createV1Entity } from "../contracts/v1.js";
 import { normalizeFeedbackFindings, repeatedRootCauseFingerprints } from "../core/feedback.js";
 import { normalizeSnapshot } from "../core/snapshot.js";
-import { readProject, resolveProjectPath } from "../core/project.js";
+import { outputDir, readProject, resolveProjectPath } from "../core/project.js";
 import { validateProject } from "../core/validate.js";
 import { createHandoff } from "../handoff/index.js";
 import { deliveryCapabilities, readDeliverySelection, recordDeliverySelection } from "../delivery/selection.js";
 import { approveOutline, exportOutline, outlineSource, requireOutlineApproval } from "../delivery/outline.js";
 import { exportPresentationPdf, hashFile, pdfCapability } from "../delivery/pdf.js";
 import { findBrowser } from "../qa/html.js";
+import { exportHandout, handoutCapability, loadScriptReview } from "../delivery/handout.js";
+import { reviewSpeakerScript } from "../qa/speaker-script.js";
 import { ProjectFileStore } from "../infrastructure/file-store.js";
 import { InfrastructureStore } from "../infrastructure/store.js";
 import { resolveReviewEvidenceDir, reviewProject, writeReviewReport } from "../review/index.js";
@@ -425,21 +427,29 @@ export class ApplicationService {
   async deliveryCapabilities(artifactType, buildId) {
     if (artifactType === "presentation") {
       const build = this.requireBuild(buildId);
-      const pdfSource = await pdfCapability(build, this.store.listEntities(this.projectId, "review"), this.project.root);
-      return deliveryCapabilities({ artifactType, availableFormats: build.state === "succeeded" ? [...build.targets, ...(pdfSource ? ["pdf"] : [])] : [] });
+      const reviews = this.store.listEntities(this.projectId, "review");
+      const pdfSource = await pdfCapability(build, reviews, this.project.root);
+      const handoutSource = await handoutCapability(build, reviews, this.project.root);
+      return deliveryCapabilities({
+        artifactType,
+        availableFormats: build.state === "succeeded" ? [...build.targets, ...(pdfSource ? ["pdf"] : []), ...(handoutSource ? ["handout"] : [])] : [],
+        details: handoutSource ? { handout: { editions: ["speaker", "audience"], components: handoutSource.components } } : {}
+      });
     }
     return deliveryCapabilities({ artifactType, availableFormats: ["markdown", "docx", ...(await findBrowser() ? ["pdf"] : [])] });
   }
 
-  async selectDelivery({ artifactType, formats, sourceId, sourceRevision, actor, selectionSource, buildId, approvalId }) {
+  async selectDelivery({ artifactType, formats, sourceId, sourceRevision, actor, selectionSource, buildId, approvalId, handoutEditions }) {
     await this.refresh();
     if (Array.isArray(formats)) formats = formats.map(format => String(format).trim().toLowerCase());
-    let availableFormats, approval, pdfSource;
+    let availableFormats, approval, pdfSource, handoutSource;
     if (artifactType === "presentation") {
       const build = this.requireBuild(buildId);
       if (build.state !== "succeeded" || sourceId !== build.id || sourceRevision !== build.version_id) throw new ApplicationError("DELIVERY_SELECTION_MISMATCH", "presentation selection must target a succeeded Build and its frozen Version");
-      pdfSource = await pdfCapability(build, this.store.listEntities(this.projectId, "review"), this.project.root);
-      availableFormats = [...build.targets, ...(pdfSource ? ["pdf"] : [])];
+      const reviews = this.store.listEntities(this.projectId, "review");
+      pdfSource = await pdfCapability(build, reviews, this.project.root);
+      handoutSource = await handoutCapability(build, reviews, this.project.root);
+      availableFormats = [...build.targets, ...(pdfSource ? ["pdf"] : []), ...(handoutSource ? ["handout"] : [])];
     } else if (artifactType === "outline") {
       if (sourceId !== this.project.contracts.outline.id) throw new ApplicationError("DELIVERY_SELECTION_MISMATCH", "outline selection must target the accepted Outline");
       approval = await requireOutlineApproval(this.project, approvalId, sourceRevision);
@@ -448,7 +458,8 @@ export class ApplicationService {
     const recorded = await recordDeliverySelection(this.project.root, {
       artifact_type: artifactType, formats, source_id: sourceId, source_revision: sourceRevision,
       actor, selection_source: selectionSource, available_formats: availableFormats,
-      approval_id: approval?.id, ...(formats?.includes("pdf") && pdfSource ? { pdf_source: pdfSource } : {})
+      approval_id: approval?.id, ...(formats?.includes("pdf") && pdfSource ? { pdf_source: pdfSource } : {}),
+      ...(formats?.includes("handout") && handoutSource ? { handout_source: { format: handoutSource.format, file: handoutSource.file, sha256: handoutSource.sha256, review_id: handoutSource.review_id }, handout_options: { editions: handoutEditions } } : {})
     });
     try {
       const artifacts = artifactType === "outline" ? await exportOutline(this.project, recorded.decision, approval) : [];
@@ -471,9 +482,9 @@ export class ApplicationService {
     if (!options.deliverySelectionId) throw new ApplicationError("DELIVERY_SELECTION_REQUIRED", "choose one or more delivery formats before creating a handoff");
     const selection = await readDeliverySelection(this.project.root, options.deliverySelectionId);
     if (selection.artifact_type !== "presentation" || selection.source_id !== buildId || selection.source_revision !== build.version_id) throw new ApplicationError("DELIVERY_SELECTION_MISMATCH", "handoff selection must target the selected Build and frozen Version");
-    if (selection.formats.some((format) => format !== "pdf" && !build.targets.includes(format))) throw new ApplicationError("EXPORTER_UNAVAILABLE", "the selected Build does not contain every requested format", { capabilities: await this.deliveryCapabilities("presentation", buildId) });
+    if (selection.formats.some((format) => !["pdf", "handout"].includes(format) && !build.targets.includes(format))) throw new ApplicationError("EXPORTER_UNAVAILABLE", "the selected Build does not contain every requested format", { capabilities: await this.deliveryCapabilities("presentation", buildId) });
     const selectedFormats = selection.formats;
-    for (const format of selectedFormats.filter(format => format !== "pdf")) {
+    for (const format of selectedFormats.filter(format => !["pdf", "handout"].includes(format))) {
       const file = `.pptops/builds/${buildId}/${format}/slides.${format}`;
       if (review.artifact_hashes?.[file] !== await hashFile(resolveProjectPath(this.project.root, file))) throw new ApplicationError("REVIEW_SOURCE_CHANGED", "selected artifact must match the accepted review; review this Build again");
     }
@@ -484,7 +495,22 @@ export class ApplicationService {
       if (!expected || expected.sha256 !== selection.pdf_source.sha256 || expected.file !== selection.pdf_source.file) throw new ApplicationError("PDF_SOURCE_CHANGED", "PDF source is no longer eligible; select again after review");
       sourceFiles.push(await exportPresentationPdf(this.project.root, selection));
     }
-    const packageResult = await createHandoff(frozenProject, report, { sourceFiles, deliverySelection: selection, variant: build.config?.variant, corporateProfile: build.config?.corporate_profile });
+    let handout;
+    if (selectedFormats.includes("handout")) {
+      if (selection.handout_source?.review_id !== reviewId) throw new ApplicationError("HANDOUT_SOURCE_REQUIRED", "handout selection must reference the selected accepted Review");
+      const expected = await handoutCapability(build, [review], this.project.root);
+      if (!expected || expected.sha256 !== selection.handout_source.sha256 || expected.file !== selection.handout_source.file) throw new ApplicationError("HANDOUT_SOURCE_CHANGED", "handout source is no longer eligible; select again after review");
+      const { review: scriptReview, source: scriptSource } = await loadScriptReview(frozenProject, outputDir(frozenProject), reviewSpeakerScript);
+      const versionFile = `.pptops/versions/${build.version_id}/snapshot.json`;
+      let versionSha;
+      try { versionSha = await hashFile(resolveProjectPath(this.project.root, versionFile)); } catch (error) { if (error.code !== "ENOENT") throw error; }
+      handout = (packageDir, editions) => exportHandout({
+        project: frozenProject, htmlFile: resolveProjectPath(this.project.root, expected.file), packageDir, scriptReview, scriptSource, editions,
+        citationManifest: build.config?.citation_manifest,
+        source: { kind: "formal_build", build_id: buildId, version_id: build.version_id, version_snapshot: versionFile, version_snapshot_sha256: versionSha ?? null, review_id: reviewId, html_file: expected.file, ...(build.config?.variant ? { variant: build.config.variant } : {}) }
+      });
+    }
+    const packageResult = await createHandoff(frozenProject, report, { sourceFiles, deliverySelection: selection, variant: build.config?.variant, corporateProfile: build.config?.corporate_profile, handout });
     const id = nextId("handoff", this.store.listEntities(this.projectId, "handoff"));
     let handoff = this.store.createHandoff(this.projectId, createV1Entity("handoff", id, { build_id: buildId, review_id: reviewId, ...(build.config?.variant ? { variant: build.config?.variant } : {}), ...(build.config?.corporate_profile ? { corporate_profile: build.config.corporate_profile } : {}), state: "preparing", files: packageResult.manifest.outputs }));
     for (const state of ["packaged", "verified"]) handoff = this.store.saveEntity(this.projectId, { ...stripRevision(handoff), state });

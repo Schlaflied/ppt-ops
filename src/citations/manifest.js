@@ -105,7 +105,7 @@ function appendixPages(manifest, originalCount) {
   return pages;
 }
 
-function renderCitation(entry) {
+export function renderCitation(entry) {
   const label = [entry.author_or_organization, entry.title, entry.date].filter(Boolean).join(". ") || entry.public_label || "Citation metadata pending";
   return `[${entry.number}] ${label}${entry.url ? ` — ${entry.url}` : ""}`;
 }

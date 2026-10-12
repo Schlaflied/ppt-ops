@@ -5,7 +5,8 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { compileProjectLayout } from "../layout/catalog.js";
 import { applyCitationManifest } from "../citations/manifest.js";
-import { DECK_KEYMAP, deckRuntimeScript } from "./html-runtime.js";
+import { DECK_KEYMAP, PRESENTER_KEYMAP, deckRuntimeScript } from "./html-runtime.js";
+import { latestRehearsedDuration } from "../delivery/retro.js";
 
 const MIME_TYPES = new Map([
   [".avif", "image/avif"], [".gif", "image/gif"], [".jpeg", "image/jpeg"],
@@ -24,8 +25,16 @@ export async function buildHtml(project) {
   const hasNotes = project.pages.some((page) => page.speaker_notes);
   // Notes live in an inert <template>: the main deck never instantiates them; only ?view=notes and ?view=presenter read them.
   const notes = hasNotes ? `<template id="speaker-notes-data"><aside id="speaker-notes" aria-label="Speaker notes"><h1>${escapeHtml(project.project.title)} — Speaker notes</h1>${project.pages.map((page) => `<article id="notes-${page.page}" data-page="${page.page}"><h2>${page.page}. ${escapeHtml(page.screen_text.title)}</h2>${page.estimated_duration_seconds ? `<p class="notes-duration">Estimated duration: ${page.estimated_duration_seconds} seconds (unrehearsed)</p>` : ""}<div class="notes-copy">${escapeHtml(page.speaker_notes ?? "No authored notes.")}</div></article>`).join("")}</aside></template>` : "";
-  const runtimeConfig = { deck_id: deckId(project), title: project.project.title, estimates: project.pages.map((page) => page.estimated_duration_seconds ?? null), budget: presenterBudget(project) };
-  const keymap = DECK_KEYMAP.map(([keys, action]) => `<dt>${escapeHtml(keys)}</dt><dd>${escapeHtml(action)}</dd>`).join("");
+  const runtimeConfig = {
+    deck_id: deckId(project), project: project.project.name ?? null, title: project.project.title,
+    pages: project.pages.map((page) => ({ page: page.page, ...(page.id ? { id: page.id } : {}), title: page.screen_text.title })),
+    estimates: project.pages.map((page) => page.estimated_duration_seconds ?? null),
+    rehearsed: project.pages.map((page) => { const latest = latestRehearsedDuration(page); return latest ? { seconds: latest.seconds, date: latest.date } : null; }),
+    budget: presenterBudget(project)
+  };
+  const keymapList = (entries) => entries.map(([keys, action]) => `<dt>${escapeHtml(keys)}</dt><dd>${escapeHtml(action)}</dd>`).join("");
+  const keymap = keymapList(DECK_KEYMAP);
+  const presenterKeys = `<div class="presenter-keys"><h3>Presenter window</h3><dl>${keymapList(PRESENTER_KEYMAP)}</dl></div>`;
   const theme = project.theme;
   const title = escapeHtml(project.project.title);
   const headingFont = cssString(theme.typography.heading_font);
@@ -80,11 +89,13 @@ body.notes-view{display:block;overflow:auto;background:var(--bg)}.notes-view .vi
 .thumb-frame{position:relative;width:100%;aspect-ratio:16/9;overflow:hidden;background:var(--bg);pointer-events:none}.thumb-stage{position:absolute;left:0;top:0;width:1920px;height:1080px;transform-origin:0 0;overflow:hidden;background:var(--bg)}.thumb-stage .slide{visibility:visible;opacity:1;transition:none;pointer-events:none}
 .jump-indicator{left:50%;bottom:72px;transform:translateX(-50%);padding:8px 16px;border-radius:999px;background:rgba(0,0,0,.8);font-weight:600}
 body.presenter-view{display:block;overflow:auto;background:#141414;color:#eee}.presenter-view .viewport,.presenter-view .controls,.presenter-view .notes-link{display:none}
-.presenter{display:grid;grid-template-rows:auto 1fr auto;gap:12px;min-height:100vh;padding:12px 16px;font:15px/1.45 system-ui,sans-serif}.presenter h2{margin:0 0 8px;font-size:14px;font-weight:600;letter-spacing:.04em;opacity:.8}
+.presenter{display:grid;grid-template-rows:auto auto 1fr auto;gap:12px;min-height:100vh;padding:12px 16px;font:15px/1.45 system-ui,sans-serif}.presenter h2{margin:0 0 8px;font-size:14px;font-weight:600;letter-spacing:.04em;opacity:.8}
 .presenter-bar,.presenter-nav{display:flex;flex-wrap:wrap;align-items:center;gap:8px 16px}.presenter-title{margin-right:auto}.presenter-status{opacity:.7}.presenter-clock b{font-size:22px;font-variant-numeric:tabular-nums}.presenter-clock.over b{color:#ff8a80}.presenter-clock[hidden]{display:none}
 .presenter-main{display:grid;grid-template-columns:minmax(0,3fr) minmax(260px,2fr);gap:16px;min-height:0}.presenter-side{display:grid;grid-template-rows:auto auto auto auto 1fr;min-height:0}.presenter-side>div[data-p="next"]{margin-bottom:12px}
 .presenter-blackout{margin-left:8px;padding:2px 8px;border-radius:4px;background:#b00020;color:#fff}.presenter-blackout[hidden]{display:none}.presenter-estimate{margin:0 0 8px;font-size:13px;opacity:.75}.presenter-end{margin:0;padding:24px;border:1px dashed rgba(255,255,255,.3);text-align:center;opacity:.7}
 .presenter-notes{overflow:auto;white-space:pre-wrap;font-size:20px;line-height:1.6}.presenter-notes.empty{opacity:.6;font-style:italic}.presenter-jump-hint{opacity:.6;font-size:13px}
+.presenter-keys{display:none}.presenter-view .presenter-keys{display:block}.presenter-keys h3{margin:0 0 8px;font-size:15px}
+.presenter-record{display:flex;flex-wrap:wrap;align-items:center;gap:8px 16px;font-size:13px}.presenter-record label{display:inline-flex;align-items:center;gap:6px;opacity:.85}.presenter-record select,.presenter-record input{padding:4px 6px;border:1px solid rgba(255,255,255,.38);border-radius:6px;background:#222;color:inherit;font:inherit}.presenter-marks{margin-right:auto;font-weight:600}.presenter button:disabled{opacity:.45;cursor:not-allowed}
 @media (max-width:760px){.presenter-main{grid-template-columns:1fr}}
 @media print{.notes-link,.controls,.blackout,.keymap,.overview,.jump-indicator{display:none}}
 @media (prefers-reduced-motion:reduce){.slide{transition:none}}
@@ -96,7 +107,7 @@ body.presenter-view{display:block;overflow:auto;background:#141414;color:#eee}.p
 <div class="blackout" hidden aria-hidden="true"></div>
 <div class="jump-indicator" hidden role="status" lang="en"></div>
 <div class="overview" hidden role="dialog" aria-label="Slide overview" lang="en"><div class="overview-head"><h2>Slide overview</h2><button type="button" data-close>Close (Esc)</button></div><div class="overview-grid"></div></div>
-<div class="keymap" hidden role="dialog" aria-labelledby="keymap-title" lang="en"><h2 id="keymap-title">Keyboard shortcuts</h2><dl>${keymap}</dl><button type="button" data-close>Close (Esc)</button></div>
+<div class="keymap" hidden role="dialog" aria-labelledby="keymap-title" lang="en"><h2 id="keymap-title">Keyboard shortcuts</h2><dl>${keymap}</dl>${presenterKeys}<button type="button" data-close>Close (Esc)</button></div>
 ${notes}
 ${hasNotes ? '<a class="notes-link" href="?view=notes" target="_blank" rel="noopener">Speaker notes ↗</a>' : ""}
 <script type="application/json" id="deck-runtime-config">${jsonForScript(runtimeConfig)}</script>

@@ -3,6 +3,7 @@ import {
   COUNTING_RULE, TRANSITION_MAX_WORDS, allocateTalkBudget, countScriptWords, normalizeScriptReviewConfig,
   normalizeTalkBudget, scriptSegments, splitSentences, wordsToSeconds, DEFAULT_WORDS_PER_MINUTE
 } from "../contracts/talk-budget.js";
+import { resolvePageDuration } from "../delivery/retro.js";
 
 export const SCRIPT_REVIEW_JSON = "script-review.json";
 export const SCRIPT_REVIEW_MARKDOWN = "script-review.md";
@@ -31,6 +32,9 @@ export function reviewSpeakerScript(project, { baseline, includeScript = false, 
     const words = countScriptWords(page.speaker_notes);
     const segmentWords = host ? 0 : words + merged.reduce((sum, item) => sum + countScriptWords(item.speaker_notes), 0);
     const target = targetByPage.get(page.page);
+    const estimatedSeconds = wordsToSeconds(host ? 0 : segmentWords, wordsPerMinute);
+    const resolved = resolvePageDuration(page);
+    const rehearsed = resolved?.source === "rehearsed" ? resolved : null;
     return {
       page: page.page,
       ...(page.id ? { id: page.id } : {}),
@@ -42,8 +46,10 @@ export function reviewSpeakerScript(project, { baseline, includeScript = false, 
       segment_words: segmentWords,
       sentences: splitSentences(page.speaker_notes).length,
       ...(target ? { target_words: target.target_words, min_words: target.min_words, max_words: target.max_words, deviation_percent: deviation(segmentWords, target.target_words) } : {}),
-      estimated_seconds: wordsToSeconds(host ? 0 : segmentWords, wordsPerMinute),
-      duration_source: "estimated",
+      estimated_seconds: estimatedSeconds,
+      duration_seconds: rehearsed ? rehearsed.seconds : estimatedSeconds,
+      duration_source: rehearsed ? "rehearsed" : "estimated",
+      ...(rehearsed ? { rehearsed_seconds: rehearsed.seconds, rehearsed_date: rehearsed.date, rehearsed_delivery_id: rehearsed.delivery_id } : {}),
       ...(page.estimated_duration_seconds ? { declared_estimate_seconds: page.estimated_duration_seconds, declared_estimate_source: "estimated" } : {}),
       ...(includeScript && page.speaker_notes !== undefined ? { script: page.speaker_notes } : {})
     };
@@ -51,6 +57,11 @@ export function reviewSpeakerScript(project, { baseline, includeScript = false, 
 
   const totalWords = pageResults.reduce((sum, item) => sum + item.words, 0);
   const totalDeviation = budget ? deviation(totalWords, budget.target_words) : null;
+  const rehearsedPages = pageResults.filter((item) => item.duration_source === "rehearsed").map((item) => item.page);
+  const totalSeconds = pageResults.reduce((sum, item) => sum + item.duration_seconds, 0);
+  const totalDurationSource = rehearsedPages.length === 0 ? "estimated" : rehearsedPages.length === pageResults.length ? "rehearsed" : "mixed";
+  const durationMinutes = round(totalSeconds / 60);
+  const durationDeviation = budget && budget.speaking_minutes > 0 ? round(((totalSeconds / 60 - budget.speaking_minutes) / budget.speaking_minutes) * 100, 1) : null;
 
   if (budget) {
     for (const result of pageResults) {
@@ -84,6 +95,15 @@ export function reviewSpeakerScript(project, { baseline, includeScript = false, 
     }, overBudget
       ? `Over budget by ${totalWords - budget.target_words} words. Compress pages ${compression.suggestions.map(({ page }) => page).join(", ") || "(none identified)"} first.`
       : `Under budget by ${budget.target_words - totalWords} words. Expand core pages or shorten total_minutes.`));
+  }
+  if (budget && rehearsedPages.length && durationDeviation !== null && Math.abs(durationDeviation) > budget.tolerance_percent) {
+    const overTime = durationDeviation > 0;
+    findings.push(finding(null, "script-total-duration", {
+      duration_minutes: durationMinutes, speaking_minutes: budget.speaking_minutes, deviation_percent: durationDeviation,
+      tolerance_percent: budget.tolerance_percent, duration_source: totalDurationSource, rehearsed_pages: rehearsedPages
+    }, overTime
+      ? `Rehearsed and estimated timing totals ${durationMinutes} min against ${budget.speaking_minutes} speaking minutes. Cut pages that ran long in the latest delivery first.`
+      : `Rehearsed and estimated timing totals ${durationMinutes} min against ${budget.speaking_minutes} speaking minutes. There is room to expand core pages.`));
   }
 
   const bannedHits = [];
@@ -151,8 +171,12 @@ export function reviewSpeakerScript(project, { baseline, includeScript = false, 
       deviation_percent: totalDeviation,
       estimated_minutes: round(totalWords / wordsPerMinute),
       speaking_minutes: budget?.speaking_minutes ?? null,
-      duration_source: "estimated",
-      rehearsed_timing: "not_claimed",
+      total_duration_seconds: totalSeconds,
+      duration_minutes: durationMinutes,
+      duration_deviation_percent: durationDeviation,
+      duration_source: totalDurationSource,
+      rehearsed_timing: rehearsedPages.length ? "latest_delivery" : "not_claimed",
+      rehearsed_pages: rehearsedPages,
       finding_count: findings.length
     },
     pages: pageResults,
@@ -176,7 +200,7 @@ export function renderScriptReviewMarkdown(review) {
   const { summary, budget, audit } = review;
   lines.push(`- Status: ${review.status}`, `- Script revision: \`${review.script_revision}\``, `- Counting: ${review.counting.description}`);
   if (budget) lines.push(`- Budget: ${budget.total_minutes} min total, ${budget.reserve_minutes} min reserve, ${budget.words_per_minute} words/min → ${budget.target_words} words (±${budget.tolerance_percent}%)`);
-  lines.push(`- Script: ${summary.total_words} words ≈ ${summary.estimated_minutes} min (${summary.duration_source}; rehearsed timing ${summary.rehearsed_timing})${summary.deviation_percent === null ? "" : `, deviation ${summary.deviation_percent}%`}`, "");
+  lines.push(`- Script: ${summary.total_words} words ≈ ${summary.estimated_minutes} min (estimated from words)${summary.deviation_percent === null ? "" : `, deviation ${summary.deviation_percent}%`}`, `- Timing: ${summary.duration_minutes} min (${summary.duration_source}; rehearsed timing ${summary.rehearsed_timing}${summary.rehearsed_pages.length ? `, pages ${summary.rehearsed_pages.join(", ")}` : ""})${summary.duration_deviation_percent === null ? "" : `, deviation ${summary.duration_deviation_percent}%`}`, "");
   lines.push("## Audit log", "");
   lines.push(`- Deleted pages: ${list(audit.deleted_pages)}`, `- Skipped pages (no narration): ${list(audit.skipped_pages)}`);
   lines.push(`- Merged pages: ${audit.merged_pages.length ? audit.merged_pages.map(({ page, merged_with }) => `${page} ← ${merged_with.join(", ")}`).join("; ") : "none"}`);
@@ -184,8 +208,8 @@ export function renderScriptReviewMarkdown(review) {
   lines.push(`- Dashes: ${audit.dash_count}`);
   const counts = Object.entries(audit.banned_phrase_counts).filter(([, count]) => count > 0);
   lines.push(`- Banned phrases: ${counts.length ? counts.map(([phrase, count]) => `${phrase} ×${count}`).join(", ") : "none"}`, "");
-  lines.push("## Pages", "", "| Page | Role | Words | Target | Deviation | Est. seconds |", "|---|---|---|---|---|---|");
-  for (const page of review.pages) lines.push(`| ${page.page}${page.merged_into ? ` (→${page.merged_into})` : ""} | ${page.script_role} | ${page.segment_words} | ${page.target_words ?? "-"} | ${page.deviation_percent ?? "-"}${page.deviation_percent === undefined ? "" : "%"} | ${page.estimated_seconds} |`);
+  lines.push("## Pages", "", "| Page | Role | Words | Target | Deviation | Est. seconds | Seconds (source) |", "|---|---|---|---|---|---|---|");
+  for (const page of review.pages) lines.push(`| ${page.page}${page.merged_into ? ` (→${page.merged_into})` : ""} | ${page.script_role} | ${page.segment_words} | ${page.target_words ?? "-"} | ${page.deviation_percent ?? "-"}${page.deviation_percent === undefined ? "" : "%"} | ${page.estimated_seconds} | ${page.duration_seconds} (${page.duration_source}${page.rehearsed_date ? ` ${page.rehearsed_date}` : ""}) |`);
   lines.push("");
   if (review.compression_suggestions?.length) {
     lines.push("## Compression suggestions", "");

@@ -118,18 +118,45 @@ export async function inspectHtmlPresentation(options = {}) {
   });
 }
 
-export async function printHtmlPdf({ htmlFile, browserPath, timeoutMs, presentation = false }) {
+const PRESENTATION_STATIC_STYLE = '@page{size:20in 11.25in;margin:0} html,body{width:1920px!important;height:auto!important;overflow:visible!important;background:white!important} .viewport, .stage{position:static!important;display:block!important;transform:none!important;width:1920px!important;height:auto!important;overflow:visible!important} .slide{position:relative!important;inset:auto!important;width:1920px!important;height:1080px!important;visibility:visible!important;opacity:1!important;transition:none!important;break-after:page!important;page-break-after:always!important;box-sizing:border-box!important} .slide:last-child{break-after:auto!important;page-break-after:auto!important} .controls,.notes-link,#speaker-notes{display:none!important} .slide[data-handout-omit]{display:none!important}';
+
+// Lays every slide out statically, one 1920x1080 block per slide, with notes and navigation hidden.
+// `omitPages` lists data-page values that are removed from the output (e.g. merged transitions in a handout).
+async function applyPresentationStaticLayout(client, omitPages = []) {
+  const result = await client.send("Runtime.evaluate", { returnByValue: true, expression: `(() => {
+    const style = document.createElement('style');
+    style.textContent = ${JSON.stringify(PRESENTATION_STATIC_STYLE)};
+    document.head.appendChild(style);
+    const omit = new Set(${JSON.stringify(omitPages.map(String))});
+    const slides = [...document.querySelectorAll('.slide')];
+    slides.forEach(slide => {slide.removeAttribute('inert');slide.setAttribute('aria-hidden','false');if(omit.has(slide.dataset.page))slide.setAttribute('data-handout-omit','')});
+    const visible = slides.filter(slide => !slide.hasAttribute('data-handout-omit'));
+    // The last printed slide must not force a trailing blank page.
+    visible.forEach((slide, index) => { if (index === visible.length - 1) slide.style.setProperty('break-after','auto','important'); });
+    return visible.map(slide => ({ page: slide.dataset.page, top: slide.getBoundingClientRect().top + scrollY }));
+  })()` });
+  return result.result?.value ?? [];
+}
+
+export async function printHtmlPdf({ htmlFile, browserPath, timeoutMs, presentation = false, omitPages = [] }) {
   return withHtmlPage({ htmlFile, browserPath, timeoutMs }, async (client) => {
-    if (presentation) {
-      await client.send("Runtime.evaluate", { expression: `(() => {
-        const style = document.createElement('style');
-        style.textContent = '@page{size:20in 11.25in;margin:0} html,body{width:1920px!important;height:auto!important;overflow:visible!important;background:white!important} .viewport, .stage{position:static!important;display:block!important;transform:none!important;width:1920px!important;height:auto!important;overflow:visible!important} .slide{position:relative!important;inset:auto!important;width:1920px!important;height:1080px!important;visibility:visible!important;opacity:1!important;break-after:page!important;page-break-after:always!important;box-sizing:border-box!important} .slide:last-child{break-after:auto!important;page-break-after:auto!important} .controls,.notes-link,#speaker-notes{display:none!important}';
-        document.head.appendChild(style);
-        document.querySelectorAll('.slide').forEach(slide => {slide.removeAttribute('inert');slide.setAttribute('aria-hidden','false')});
-      })()` });
-    }
+    if (presentation) await applyPresentationStaticLayout(client, omitPages);
     const result = await client.send("Page.printToPDF", { printBackground: true, displayHeaderFooter: false, preferCSSPageSize: true, marginTop: 0, marginBottom: 0, marginLeft: 0, marginRight: 0 });
     return Buffer.from(result.data, "base64");
+  });
+}
+
+/** Captures one PNG per slide of a generated presentation HTML file, in slide order. */
+export async function captureSlidePreviews({ htmlFile, browserPath, timeoutMs, scale = 0.5 }) {
+  return withHtmlPage({ htmlFile, browserPath, timeoutMs }, async (client) => {
+    await client.send("Emulation.setDeviceMetricsOverride", { width: 1920, height: 1080, deviceScaleFactor: 1, mobile: false });
+    const slides = await applyPresentationStaticLayout(client);
+    const previews = [];
+    for (const slide of slides) {
+      const shot = await client.send("Page.captureScreenshot", { format: "png", captureBeyondViewport: true, clip: { x: 0, y: slide.top, width: 1920, height: 1080, scale } });
+      previews.push({ page: Number(slide.page) || previews.length + 1, png: Buffer.from(shot.data, "base64") });
+    }
+    return previews;
   });
 }
 

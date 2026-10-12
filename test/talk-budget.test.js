@@ -155,3 +155,45 @@ test("script-review CLI writes the per-page script, review includes the check, a
   const report = JSON.parse(await fs.readFile(path.join(project, "outputs", "review-report.json"), "utf8"));
   assert.equal(report.automated_checks.find(({ id }) => id === "speaker-script-review").required, false);
 });
+
+test("prefers the latest rehearsed delivery time per page and reflects it in budget totals", () => {
+  const feedback = (delivery_id, date, actual_seconds, extra = {}) => ({ delivery_id, date, venue: "offline", actual_seconds, visit_count: 1, skipped: false, overtime: false, marks: [], report: `deliveries/${delivery_id}.md`, ...extra });
+  const pages = [
+    page(1, { speaker_notes: chars(249), delivery_feedback: [feedback("a", "2026-10-01", 40), feedback("b", "2026-10-05", 90)] }),
+    page(2, { speaker_notes: chars(249), delivery_feedback: [feedback("c", "2026-10-05", 0, { skipped: true })] }),
+    page(3, { speaker_notes: chars(249) })
+  ];
+  const project = { project: { name: "deck", talk_budget: { total_minutes: 3 } }, pages };
+  const review = reviewSpeakerScript(project);
+  const byPage = Object.fromEntries(review.pages.map((item) => [item.page, item]));
+  assert.equal(byPage[1].estimated_seconds, 60);
+  assert.equal(byPage[1].duration_seconds, 90);
+  assert.equal(byPage[1].duration_source, "rehearsed");
+  assert.equal(byPage[1].rehearsed_date, "2026-10-05");
+  assert.equal(byPage[1].rehearsed_delivery_id, "b");
+  assert.equal(byPage[2].duration_source, "estimated", "skipped deliveries are not rehearsal evidence");
+  assert.equal(byPage[2].duration_seconds, 60);
+  assert.equal(byPage[3].duration_source, "estimated");
+  assert.equal(review.summary.total_duration_seconds, 210);
+  assert.equal(review.summary.duration_minutes, 3.5);
+  assert.equal(review.summary.duration_source, "mixed");
+  assert.equal(review.summary.rehearsed_timing, "latest_delivery");
+  assert.deepEqual(review.summary.rehearsed_pages, [1]);
+  assert.equal(review.summary.duration_deviation_percent, 16.7);
+  assert.equal(review.findings.some(({ check }) => check === "script-total-budget"), false, "word count alone is on budget");
+  const duration = review.findings.find(({ check }) => check === "script-total-duration");
+  assert.equal(duration.evidence.duration_source, "mixed");
+  assert.deepEqual(duration.evidence.rehearsed_pages, [1]);
+  assert.match(renderScriptReviewMarkdown(review), /90 \(rehearsed 2026-10-05\)/);
+
+  const allRehearsed = reviewSpeakerScript({ ...project, pages: pages.map((item) => ({ ...item, delivery_feedback: [feedback(`x${item.page}`, "2026-10-06", 55)] })) });
+  assert.equal(allRehearsed.summary.duration_source, "rehearsed");
+  assert.equal(allRehearsed.summary.total_duration_seconds, 165);
+  assert.equal(allRehearsed.findings.some(({ check }) => check === "script-total-duration"), false);
+
+  const estimatedOnly = reviewSpeakerScript({ ...project, pages: pages.map(({ delivery_feedback, ...item }) => item) });
+  assert.equal(estimatedOnly.summary.duration_source, "estimated");
+  assert.equal(estimatedOnly.summary.rehearsed_timing, "not_claimed");
+  assert.equal(estimatedOnly.summary.total_duration_seconds, 180);
+  assert.equal(estimatedOnly.findings.some(({ check }) => check === "script-total-duration"), false, "estimate-only timing never raises a rehearsed duration finding");
+});

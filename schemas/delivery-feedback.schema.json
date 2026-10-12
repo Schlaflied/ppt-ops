@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ppt-ops.local/schemas/delivery-feedback.schema.json",
+  "title": "PPT-Ops PageSpec delivery feedback",
+  "description": "Per-page history appended by `pptops delivery-retro`, one entry per imported real delivery. Timing is measured on the presenter talk clock (paused time excluded).",
+  "type": "array",
+  "items": {
+    "type": "object",
+    "required": ["delivery_id", "date", "venue", "actual_seconds", "visit_count", "skipped", "overtime", "marks"],
+    "properties": {
+      "delivery_id": { "type": "string", "pattern": "^[a-z0-9][a-z0-9._-]*$" },
+      "date": { "type": "string", "pattern": "^\\d{4}-\\d{2}-\\d{2}$" },
+      "venue": { "type": "string", "enum": ["offline", "online"] },
+      "actual_seconds": { "type": "number", "minimum": 0, "description": "Measured talk time on this page during the delivery." },
+      "estimated_seconds": { "type": "integer", "minimum": 1, "description": "Planning estimate at import time, kept for comparison." },
+      "visit_count": { "type": "integer", "minimum": 0 },
+      "skipped": { "type": "boolean" },
+      "overtime": { "type": "boolean" },
+      "marks": { "type": "array", "uniqueItems": true, "items": { "type": "string", "enum": ["stumble", "question", "skipped"] } },
+      "report": { "type": "string", "minLength": 1, "description": "Project-relative path of the retro Markdown report." }
+    },
+    "additionalProperties": false
+  }
+}
