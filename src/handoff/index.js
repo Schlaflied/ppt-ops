@@ -4,6 +4,7 @@ import { constants } from "node:fs";
 import path from "node:path";
 import { readDeliverySelection } from "../delivery/selection.js";
 import { outputDir } from "../core/project.js";
+import { SCRIPT_REVIEW_JSON, SCRIPT_REVIEW_MARKDOWN, renderScriptReviewMarkdown, reviewSpeakerScript } from "../qa/speaker-script.js";
 
 export const HANDOFF_DIR = "handoff";
 export const HANDOFF_MANIFEST_FILE = "manifest.json";
@@ -32,6 +33,8 @@ export async function createHandoff(project, reviewReport, options = {}) {
       sha256: createHash("sha256").update(contents).digest("hex")
     });
   }
+  const scriptReview = await packageScriptReview(project, outputs, packageDir);
+  if (scriptReview) packagedOutputs.push(...scriptReview.outputs);
   const accessibility = accessibilityHandoff(reviewReport);
   const factLedger = factLedgerHandoff(reviewReport);
   const citations = citationHandoff(reviewReport);
@@ -53,11 +56,34 @@ export async function createHandoff(project, reviewReport, options = {}) {
     ...(accessibility ? { accessibility } : {}),
     ...(factLedger ? { fact_ledger: factLedger } : {}),
     ...(citations ? { citations } : {}),
+    ...(scriptReview ? { script_review: scriptReview.summary } : {}),
     ...(options.boundaryImages ? { boundary_images: options.boundaryImages.boundaries.map(({ boundary, roles, page_id, asset_id, generation_id, sha256 }) => ({ boundary, roles, page_id, asset_id, generation_id, sha256 })) } : {})
   };
   const manifestFile = path.join(packageDir, HANDOFF_MANIFEST_FILE);
   await fs.writeFile(manifestFile, `${JSON.stringify(manifest, null, 2)}\n`, { flag: "wx" });
   return { manifest, manifestFile, packageDir };
+}
+
+// Saves the speaker script audit log beside the packaged outputs. A saved `pptops script-review` result is reused
+// only when it was produced from the same script revision, which preserves its baseline compression evidence.
+async function packageScriptReview(project, outputs, packageDir) {
+  let review = reviewSpeakerScript(project, { includeScript: true });
+  if (!review) return undefined;
+  try {
+    const saved = JSON.parse(await fs.readFile(path.join(outputs, SCRIPT_REVIEW_JSON), "utf8"));
+    if (saved?.kind === "speaker_script_review" && saved.script_revision === review.script_revision && saved.project === review.project) review = saved;
+  } catch (error) { if (error.code !== "ENOENT" && !(error instanceof SyntaxError)) throw error; }
+  const files = [[SCRIPT_REVIEW_JSON, `${JSON.stringify(review, null, 2)}\n`], [SCRIPT_REVIEW_MARKDOWN, renderScriptReviewMarkdown(review)]];
+  const packaged = [];
+  for (const [name, contents] of files) {
+    const destination = path.join(packageDir, name);
+    await fs.writeFile(destination, contents, { flag: "wx" });
+    packaged.push({ name, source: "generated:speaker-script-review", packaged: path.relative(project.root, destination), bytes: Buffer.byteLength(contents), sha256: createHash("sha256").update(contents).digest("hex") });
+  }
+  return {
+    outputs: packaged,
+    summary: { status: review.status, script_revision: review.script_revision, summary: review.summary, audit: { deleted_pages: review.audit.deleted_pages, skipped_pages: review.audit.skipped_pages, merged_pages: review.audit.merged_pages, compression_ratio: review.audit.compression_ratio, compression_basis: review.audit.compression_basis, budget_ratio: review.audit.budget_ratio ?? null, banned_phrase_counts: review.audit.banned_phrase_counts, dash_count: review.audit.dash_count }, files: packaged.map(({ name }) => name) }
+  };
 }
 
 function citationHandoff(reviewReport) {

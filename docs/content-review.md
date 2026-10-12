@@ -27,3 +27,15 @@ PPT Agent 在大纲确认前检查听众能从内容中获得什么，在修改�
 内容审查不会自动替换已接受的页面，也不代替视觉检查、自动测试、PowerPoint 实机验证和用户验收。已有授权下的修改继续走项目原有流程。正式交付仍执行原有构建与验收规则。
 
 接入规则见 [content-review.md](../.agents/skills/ppt-agent/references/content-review.md)，报告结构见 [content-review-template.md](../.agents/skills/ppt-agent/references/content-review-template.md)。路由测试验证内容审查与正式构建的入口边界；它们不证明理论正确或课堂效果。
+
+## 讲稿审校（总时长预算）
+
+项目可选声明 `talk_budget`：`total_minutes`（必填）、`words_per_minute`（默认 250）、`reserve_minutes`（答疑/缓冲，默认 0）、`tolerance_percent`（总字数允许偏差，默认 10）。预算字数 = (`total_minutes` − `reserve_minutes`) × `words_per_minute`。计数规则：每个汉字（含日文假名、韩文）计 1 字；每个连续的拉丁字母或数字串计 1 词（`GPT-4`、`3.5` 各计 1）；标点和空白不计。
+
+PageSpec 可选 `script_role`：`transition`（一句话，≤40 字）、`core`（默认，优先分配）、`reference`（可压缩、可跳过）；`merged_with: [页码或 PageSpec id]` 表示被列出的页面由本页讲稿一起讲。分配器先给转场页一句话（最多 30 字），剩余字数按 core 1.0、reference 0.4 的权重用最大余数法分配，合并页的份额并入宿主页。代码只计算预算与检查结果，逐字稿仍由 Agent 撰写、讲者校对。
+
+可选 `script_review` 配置语言检查：`banned_phrases`（默认 说白了、简单来说、换句话说、综上所述、总而言之、众所周知；设为 `[]` 关闭）、`max_dashes_per_page`（默认 2）、`quote_style`（`consistent` | `curly` | `corner`，默认 `consistent`）。
+
+运行 `pptops script-review <project-dir> [--baseline <旧的 script-review.json>]`，输出每页目标字数、实际字数、偏差和推算时长，并写入 `outputs/script-review.json`（含每页讲稿全文）与 `outputs/script-review.md`。发现项包括：`script-total-budget`（超时时列出建议压缩的页：先把转场压成一句，再跳过 reference 页，再把 core 页压回目标）、`script-page-budget`、`script-transition-length`、`script-missing`、`script-banned-phrase`（含页码与原句）、`script-dash-limit`、`script-quote-style`，以及 `script-screen-number-missing`（页面标题、副标题、正文或三秒信息中的阿拉伯数字没有出现在该页讲稿中）。时长一律标为 `estimated`（由字数推算），`rehearsed_timing` 为 `not_claimed`；自动化不会声称彩排实测。
+
+声明了 `talk_budget` 或 `script_review` 时，`pptops review` 增加非阻断检查 `speaker-script-review`，交付包另存 `script-review.json` 与 `script-review.md` 审校日志（删页、跳过页、合并页、压缩比、禁用词与破折号计数），并在 manifest 的 `script_review` 中摘要。压缩比需要 `--baseline` 提供压缩前的审校结果；若 `outputs/script-review.json` 与冻结版本的 `script_revision` 一致，交付包沿用它。未声明这两项时，审查与交付行为不变。
