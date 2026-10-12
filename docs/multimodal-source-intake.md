@@ -9,3 +9,7 @@
 Stage 1 不调用任何外部模型，也没有上传路径。manifest 明确记录 `local_only` 与 `external_authorized: false`。未来接入供应商时，必须在发送前展示供应商、拟发送内容和隐私策略，并取得显式授权。
 
 尚未实现：真实 OCR/表格识别、音频转写/讲者区分、视频音画联合理解、混合来源索引与冲突处理、Page Spec/Review/Handoff 串接，以及真实案例的隐私与中断恢复验收。这些属于后续阶段。
+
+## Stage 2：本地图片/OCR 证据
+
+`createImageOcrEvidence` 接收本地 OCR 引擎产出的区域结果，要求引擎明确声明 `execution: local`，并把页码、归一化区域、文字、置信度和不可读状态规范化为确定性证据。低于 0.8 的结果进入 `low_confidence`，不可读区域进入 `unreadable`；两者都不会成为用户确认事实。本阶段不包含云端上传路径，也不把 OCR 文本自动写入 Page Spec。
