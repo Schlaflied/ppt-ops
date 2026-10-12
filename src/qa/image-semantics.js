@@ -47,6 +47,18 @@ export function analyzeImageSemantics(project, placements = []) {
       crop_id: region.id, visible_source_region: visible,
       automated_claim: "The rendered crop removes part of a declared forbidden-crop region."
     }));
+    if ((semantics.allowed_crops?.length ?? 0) > 0 && !semantics.allowed_crops.some((region) => contains(region.bounds, visible))) findings.push(finding(page.page, asset.id, "image-crop-outside-allowed-region", "error", {
+      visible_source_region: visible,
+      allowed_crop_ids: semantics.allowed_crops.map(({ id }) => id),
+      recommended_action: "switch-layout-or-use-contain",
+      automated_claim: "The rendered source window is outside every explicitly allowed crop."
+    }));
+    for (const overlay of placement.overlays ?? []) for (const safe of semantics.text_safe_areas ?? []) if (!contains(safe.bounds, overlay)) findings.push(finding(page.page, asset.id, "image-text-outside-safe-area", "error", {
+      overlay_id: overlay.id,
+      safe_area_id: safe.id,
+      recommended_action: "move-label-or-switch-layout",
+      automated_claim: "An overlay is not fully contained by its declared text-safe area."
+    }));
   }
 
   return {
@@ -55,6 +67,8 @@ export function analyzeImageSemantics(project, placements = []) {
     pixel_semantics_inferred: false,
     human_comprehension_assessed: false,
     image_semantics_usage_count: usageCount,
+    build_blocked: findings.some(({ severity }) => severity === "error"),
+    recommended_action: findings.some(({ severity }) => severity === "error") ? "switch-layout-or-request-review" : null,
     findings
   };
 }

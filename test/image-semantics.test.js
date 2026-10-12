@@ -44,6 +44,16 @@ test("QA reports missing mappings, unsafe crops and undersized placements withou
   for (const check of ["image-semantics-human-confirmation", "image-region-mapping-missing", "image-minimum-display-size", "image-semantic-region-cropped", "image-forbidden-crop"]) assert.ok(result.findings.some((item) => item.check === check));
 });
 
+test("QA blocks crops outside allowed windows and labels outside text-safe areas", () => {
+  const guarded = { ...semantics, allowed_crops: [{ id: "center", bounds: { x: 0.2, y: 0, width: 0.6, height: 1 } }] };
+  const project = { assets: [{ id: "multi-scene", image_semantics: guarded }], pages: [{ page: 2, asset_slots: [{ asset_id: "multi-scene", region_mappings: [{ content_id: "clinic-copy", region_id: "clinic" }] }] }] };
+  const result = analyzeImageSemantics(project, [{ page: 2, asset_id: "multi-scene", width: 6000000, height: 4000000, crop: { left: 0.1 }, overlays: [{ id: "label", x: 0.8, y: 0.8, width: 0.2, height: 0.2 }] }]);
+  assert.equal(result.build_blocked, true);
+  assert.equal(result.recommended_action, "switch-layout-or-request-review");
+  assert.ok(result.findings.some(({ check }) => check === "image-crop-outside-allowed-region"));
+  assert.ok(result.findings.some(({ check }) => check === "image-text-outside-safe-area"));
+});
+
 function fixture(asset, assetSlots) {
   const project = base("project", "demo", { title: "Demo", format: "16:9", outputs: ["pptx"], source_ids: ["source-001"], outline_id: "outline-main", theme_id: "theme-default", asset_ids: [asset.id] });
   const source = base("source", "source-001", { file: "brief.md", bytes: 1, mime: "text/markdown", sha256: digest });
