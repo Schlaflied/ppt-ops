@@ -32,8 +32,8 @@ Usage:
   pptops build <project-dir> [--format html|pptx|all]
   pptops review <project-dir>
   pptops script-review <project-dir> [--baseline <script-review.json>]
-  pptops handoff <project-dir> --formats <html,pptx> --actor <user>
-  pptops deliver <project-dir> --formats <html,pptx> --actor <user>
+  pptops handoff <project-dir> --formats <html,pptx,handout> --actor <user> [--handout-editions <speaker,audience>]
+  pptops deliver <project-dir> --formats <html,pptx,handout> --actor <user> [--handout-editions <speaker,audience>]
   pptops candidate-propose <project-dir> --target-kind <kind> --target-id <id> --patch <json> --base-revision <n> [--parent-candidate <id>] [--hypothesis <text>]
   pptops source-update-preview <project-dir> --source <id> --file <new-file>
   pptops source-update-propose <project-dir> --source <id> --new-source <id> --page-id <id> --patch <json> --base-revision <n>
@@ -65,7 +65,7 @@ Usage:
   pptops outline-source <project-dir>
   pptops outline-approve <project-dir> --source-revision <hash> --actor <user> --raw-feedback <text>
   pptops delivery-capabilities <project-dir> --artifact <presentation|outline> [--build <id>]
-  pptops delivery-select <project-dir> --artifact <presentation|outline> --formats <list> --source <id> --source-revision <id> --actor <id> [--build <id>] [--approval <id>]
+  pptops delivery-select <project-dir> --artifact <presentation|outline> --formats <list> --source <id> --source-revision <id> --actor <id> [--build <id>] [--approval <id>] [--handout-editions <speaker,audience>]
   pptops handoff-create <project-dir> --build <id> --review <id> --selection <id>
   pptops doctor [project-dir]
   pptops reindex <project-dir>
@@ -184,10 +184,11 @@ try {
     } else if (command === "deliver") {
       await assertBoundaryGeneratedImages(project);
       const formats = csvOption(options, "formats");
-      if (formats.some(format => !["html", "pptx"].includes(format))) throw new Error("deliver supports html,pptx; select PDF from an accepted formal Build instead");
+      if (formats.some(format => !["html", "pptx", "handout"].includes(format))) throw new Error("deliver supports html,pptx,handout; select PDF from an accepted formal Build instead");
       const { requireUser } = await import("./delivery/outline.js");
       requireUser(required(options, "actor"));
-      await buildFormats(project, formats);
+      // A handout derives from the presentation HTML, so it is rendered even when HTML itself is not packaged.
+      await buildFormats(project, ["html", "pptx"].filter(format => formats.includes(format) || (format === "html" && formats.includes("handout"))));
       await runHandoff(project, options);
     } else {
       throw new Error(`unknown command: ${command}`);
@@ -240,7 +241,8 @@ async function runApplicationCommand(command, projectDir, options) {
     if (command === "delivery-capabilities") return service.deliveryCapabilities(required(options, "artifact"), options.build);
     if (command === "delivery-select") return await service.selectDelivery({
       artifactType: required(options, "artifact"), formats: csvOption(options, "formats"), sourceId: required(options, "source"),
-      sourceRevision: required(options, "source-revision"), actor: required(options, "actor"), selectionSource: options["selection-source"], buildId: options.build, approvalId: options.approval
+      sourceRevision: required(options, "source-revision"), actor: required(options, "actor"), selectionSource: options["selection-source"], buildId: options.build, approvalId: options.approval,
+      handoutEditions: options["handout-editions"] ? csvOption(options, "handout-editions") : undefined
     });
     if (command === "handoff-create") return await service.createHandoff(required(options, "build"), required(options, "review"), { deliverySelectionId: options.selection });
     throw new ApplicationError("COMMAND_UNKNOWN", `unknown application command: ${command}`);
@@ -320,15 +322,28 @@ async function runHandoff(project, options) {
     const file = path.join(outputDir(project), `slides.${format}`);
     try { available.push({ format, name: `slides.${format}`, path: file, sha256: await hashFile(file) }); } catch (error) { if (error.code !== "ENOENT") throw error; }
   }
+  const html = available.find(item => item.format === "html");
   const selection = await recordDeliverySelection(project.root, {
-    artifact_type: "presentation", formats, available_formats: available.map(item => item.format), actor,
-    source_id: "legacy-output-snapshot", source_revision: digest(available.map(({ format, sha256 }) => ({ format, sha256 }))), selection_source: "explicit_cli_formats"
+    artifact_type: "presentation", formats, available_formats: [...available.map(item => item.format), ...(html ? ["handout"] : [])], actor,
+    source_id: "legacy-output-snapshot", source_revision: digest(available.map(({ format, sha256 }) => ({ format, sha256 }))), selection_source: "explicit_cli_formats",
+    ...(html ? { handout_source: { format: "html", file: path.relative(project.root, html.path), sha256: html.sha256 } } : {}),
+    handout_options: { editions: options["handout-editions"] ? csvOption(options, "handout-editions") : undefined }
   });
   const report = await reviewProject(project, { htmlQa: true, evidenceDir: resolveReviewEvidenceDir(project.root) });
   const reportFile = await writeReviewReport(project, report);
   const sourceFiles = available.filter(item => selection.decision.formats.includes(item.format));
   sourceFiles.push({ name: "review-report.json", path: reportFile });
-  const handoff = await createHandoff(project, report, { sourceFiles, boundaryImages, deliverySelection: selection.decision });
+  let handout;
+  if (selection.decision.formats.includes("handout")) {
+    const [{ exportHandout, loadScriptReview }, { reviewSpeakerScript }] = await Promise.all([import("./delivery/handout.js"), import("./qa/speaker-script.js")]);
+    if (await hashFile(html.path) !== html.sha256) { const error = new Error("slides.html changed after the handout was selected"); error.code = "HANDOUT_SOURCE_CHANGED"; throw error; }
+    const { review: scriptReview, source: scriptSource } = await loadScriptReview(project, outputDir(project), reviewSpeakerScript);
+    handout = (packageDir, editions) => exportHandout({
+      project, htmlFile: html.path, packageDir, scriptReview, scriptSource, editions, citationManifest: project.citationManifest,
+      source: { kind: "legacy_output_snapshot", source_revision: selection.decision.source_revision, html_file: path.relative(project.root, html.path), review_report: path.relative(project.root, reportFile), review_passed: report.passed }
+    });
+  }
+  const handoff = await createHandoff(project, report, { sourceFiles, boundaryImages, deliverySelection: selection.decision, handout });
   console.log(JSON.stringify({ ...handoff.manifest, review_report: reportFile, manifest_file: handoff.manifestFile }, null, 2));
   if (!report.passed) process.exitCode = 1;
 }
@@ -352,7 +367,7 @@ function parseOptions(args) {
     const value = args[index + 1];
     if (!key?.startsWith("--") || value === undefined || value.startsWith("--")) throw new Error(`invalid option: ${key ?? ""}`.trim());
     const name = key.slice(2);
-    if (!["action", "payload", "repository-root", "name", "title", "delivery-mode", "accessibility-profile", "html-file", "pptx-file", "pages", "format", "to", "file", "target-kind", "target-id", "page-id", "new-source", "patch", "base-revision", "candidate", "expected-revision", "parent-candidate", "hypothesis", "reconstruction", "status", "raw-feedback", "findings", "left-candidate", "right-candidate", "version", "variant", "targets", "build", "review", "decision", "evidence", "source", "source-revision", "selection-source", "selection", "approval", "artifact", "formats", "data-root", "brief", "response", "brief-id", "provider", "model", "mime", "generation", "actor", "verdict", "checks", "notes", "asset-id", "page-id", "slot-role", "alt", "fit", "browser", "timeout", "baseline"].includes(name)) throw new Error(`unknown option: ${key}`);
+    if (!["action", "payload", "repository-root", "name", "title", "delivery-mode", "accessibility-profile", "html-file", "pptx-file", "pages", "format", "to", "file", "target-kind", "target-id", "page-id", "new-source", "patch", "base-revision", "candidate", "expected-revision", "parent-candidate", "hypothesis", "reconstruction", "status", "raw-feedback", "findings", "left-candidate", "right-candidate", "version", "variant", "targets", "build", "review", "decision", "evidence", "source", "source-revision", "selection-source", "selection", "approval", "artifact", "formats", "data-root", "brief", "response", "brief-id", "provider", "model", "mime", "generation", "actor", "verdict", "checks", "notes", "asset-id", "page-id", "slot-role", "alt", "fit", "browser", "timeout", "baseline", "handout-editions"].includes(name)) throw new Error(`unknown option: ${key}`);
     options[name] = value;
   }
   return options;

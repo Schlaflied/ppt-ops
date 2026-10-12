@@ -16,7 +16,7 @@ export async function createHandoff(project, reviewReport, options = {}) {
   const outputs = outputDir(project);
 
   const sourceFiles = (options.sourceFiles ?? await availableOutputFiles(outputs)).filter(source => source.name === "review-report.json" || selection.formats.some(format => source.name === `slides.${format}`));
-  if (selection.formats.some(format => !sourceFiles.some(source => source.name === `slides.${format}`))) throw Object.assign(new Error("a selected artifact is missing"), { code: "EXPORTER_UNAVAILABLE" });
+  if (selection.formats.some(format => format !== "handout" && !sourceFiles.some(source => source.name === `slides.${format}`))) throw Object.assign(new Error("a selected artifact is missing"), { code: "EXPORTER_UNAVAILABLE" });
   const packageDir = await nextPackageDirectory(outputs);
   await fs.mkdir(packageDir, { recursive: true });
   sourceFiles.sort((left, right) => left.name.localeCompare(right.name));
@@ -35,6 +35,13 @@ export async function createHandoff(project, reviewReport, options = {}) {
   }
   const scriptReview = await packageScriptReview(project, outputs, packageDir);
   if (scriptReview) packagedOutputs.push(...scriptReview.outputs);
+  // The handout is an optional, independently selected target derived from the reviewed HTML.
+  let handout;
+  if (selection.formats.includes("handout")) {
+    if (typeof options.handout !== "function") throw Object.assign(new Error("handout requires a reviewed HTML source"), { code: "EXPORTER_UNAVAILABLE" });
+    handout = await options.handout(packageDir, selection.handout_options?.editions ?? ["speaker"]);
+    packagedOutputs.push(...handout.files.map(({ name, path: file, bytes, sha256 }) => ({ name, source: "generated:handout", packaged: path.relative(project.root, file), bytes, sha256 })));
+  }
   const accessibility = accessibilityHandoff(reviewReport);
   const factLedger = factLedgerHandoff(reviewReport);
   const citations = citationHandoff(reviewReport);
@@ -57,6 +64,7 @@ export async function createHandoff(project, reviewReport, options = {}) {
     ...(factLedger ? { fact_ledger: factLedger } : {}),
     ...(citations ? { citations } : {}),
     ...(scriptReview ? { script_review: scriptReview.summary } : {}),
+    ...(handout ? { handout: handout.summary } : {}),
     ...(options.boundaryImages ? { boundary_images: options.boundaryImages.boundaries.map(({ boundary, roles, page_id, asset_id, generation_id, sha256 }) => ({ boundary, roles, page_id, asset_id, generation_id, sha256 })) } : {})
   };
   const manifestFile = path.join(packageDir, HANDOFF_MANIFEST_FILE);

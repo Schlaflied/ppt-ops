@@ -12,6 +12,10 @@ Use `delivery-select --artifact presentation --formats pptx --source <build> --s
 
 PDF becomes available only when a reviewed source and exporter exist. A reviewed HTML source uses Chromium printing with one page per slide and notes/navigation hidden; otherwise a reviewed PPTX can use the native presentation converter. The derivative records the source file hash, Build/Version, Review, exporter and output hash. PDF-only delivery does not add the unselected source file to the package. Failed exporters report `EXPORTER_UNAVAILABLE`, preserve accepted work and allow reselection; they never silently switch formats. Existing immutable derivatives are reused only after their hashes are verified.
 
+## Post-talk handout
+
+`handout` is an optional presentation format, selected independently of HTML, PPTX and PDF; leaving it unselected keeps the default HTML + PPTX package unchanged. It derives from a reviewed HTML Build only (hash-bound like PDF) and packages a vector PDF, per-page script Markdown from `script-review`, per-page PNG previews, an offline chapter-grouped `index.html`, and optionally an audience edition (`--handout-editions speaker,audience`). Without Chromium, PDF and previews are recorded as `unavailable` rather than substituted. See [handout.md](handout.md).
+
 ## Outline delivery
 
 `outline-source` returns the outline identity and hash of its title, sections and referenced page content. After explicit acceptance, `outline-approve --source-revision <hash> --actor user --raw-feedback <text>` preserves the exact accepted snapshot. A later change requires a new acceptance.

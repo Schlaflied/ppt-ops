@@ -1,5 +1,6 @@
 import crypto from "node:crypto";
 import fs from "node:fs/promises";
+import zlib from "node:zlib";
 import JSZip from "jszip";
 
 /**
@@ -74,6 +75,68 @@ export async function inspectContentConsistency({ htmlFile, pptxFile, buildRevis
   };
 }
 
+/**
+ * Page-count consistency between a generated presentation HTML file and a PDF derived from it.
+ * Uses the same slide extraction as the HTML/PPTX check, so both checks agree on what a "page" is.
+ * `omitPages` lists HTML data-page values deliberately left out of the PDF (e.g. merged transitions).
+ */
+export async function inspectPdfPageConsistency({ htmlFile, pdfBytes, omitPages = [], id = "html-pdf-page-consistency" }) {
+  const htmlBytes = await fs.readFile(htmlFile);
+  const htmlPages = extractHtmlPages(htmlBytes.toString("utf8"));
+  const omitted = new Set(omitPages.map(Number));
+  const expected = htmlPages.filter(({ page }) => !omitted.has(page)).length;
+  const pdf = countPdfPages(pdfBytes);
+  const textLayer = pdfTextLayer(pdfBytes);
+  const findings = [];
+  if (pdf !== expected) findings.push({ ...finding("page-count-mismatch", "blocking", { html: htmlPages.length, omitted: [...omitted].sort((a, b) => a - b), expected, pdf }), page: null });
+  if (textLayer !== "present") findings.push({ ...finding("pdf-text-layer-missing", "major", { text_layer: textLayer }), page: null });
+  return {
+    id,
+    kind: "automated",
+    status: findings.length ? "failed" : "passed",
+    required: true,
+    scope: "page-count-and-text-layer",
+    artifacts: { html_file: htmlFile, html: sha256(htmlBytes), pdf: sha256(pdfBytes) },
+    page_count: { html: htmlPages.length, omitted: omitted.size, expected, pdf },
+    text_layer: textLayer,
+    findings,
+    limitations: [
+      "Counts PDF page objects and checks for embedded fonts and text-showing operators; it does not extract or compare the PDF text itself.",
+      "Does not compare pixels, geometry or fonts between HTML and PDF."
+    ],
+    checked_at: new Date().toISOString()
+  };
+}
+
+export function countPdfPages(bytes) {
+  const text = Buffer.from(bytes).toString("latin1");
+  const objects = (text.match(/\/Type\s*\/Page(?![a-zA-Z])/g) ?? []).length;
+  if (objects) return objects;
+  const counts = [...text.matchAll(/\/Count\s+(\d+)/g)].map(match => Number(match[1]));
+  return counts.length ? Math.max(...counts) : 0;
+}
+
+// A PDF "has a text layer" when it embeds fonts and at least one content stream shows text (BT ... Tf ... ET).
+// Rasterised pages (images only) fail this check, so a screenshot-only PDF cannot pass as selectable text.
+export function pdfTextLayer(bytes) {
+  const buffer = Buffer.from(bytes);
+  const text = buffer.toString("latin1");
+  if (!/\/Font\b/.test(text)) return "absent";
+  const pattern = /(?<!end)stream\r?\n/g;
+  let match;
+  while ((match = pattern.exec(text))) {
+    const start = match.index + match[0].length;
+    const end = text.indexOf("endstream", start);
+    if (end < 0) break;
+    const raw = buffer.subarray(start, end);
+    let content;
+    try { content = zlib.inflateSync(raw).toString("latin1"); } catch { content = raw.toString("latin1"); }
+    if (/\bBT\b[\s\S]*?\bTf\b[\s\S]*?\bET\b/.test(content)) return "present";
+    pattern.lastIndex = end + "endstream".length;
+  }
+  return "absent";
+}
+
 async function extractPptxPages(bytes) {
   const archive = await JSZip.loadAsync(bytes);
   const entries = Object.keys(archive.files)
@@ -101,7 +164,7 @@ async function extractPptxPages(bytes) {
   }));
 }
 
-function extractHtmlPages(html) {
+export function extractHtmlPages(html) {
   return [...html.matchAll(/<section\b[^>]*class="[^"]*\bslide\b[^"]*"[^>]*data-page="([^"]+)"[^>]*>([\s\S]*?)<\/section>/gi)].map((match, index) => {
     const source = match[2];
     const field = key => [...source.matchAll(new RegExp(`<[^>]*data-reading-key="${key}"[^>]*>([\\s\\S]*?)<\\/[^>]+>`, "gi"))].map(item => decodeHtml(stripTags(item[1]))).filter(Boolean);

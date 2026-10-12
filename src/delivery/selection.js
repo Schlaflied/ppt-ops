@@ -3,20 +3,22 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { resolveProjectPath } from "../core/project.js";
 import { requireUser } from "./outline.js";
+import { normalizeHandoutEditions } from "./handout.js";
 
-export const DELIVERY_FORMATS = Object.freeze({ presentation: ["html", "pptx", "pdf"], outline: ["markdown", "docx", "pdf"] });
+export const DELIVERY_FORMATS = Object.freeze({ presentation: ["html", "pptx", "pdf", "handout"], outline: ["markdown", "docx", "pdf"] });
 
 export class DeliverySelectionError extends Error {
   constructor(code, message, details) { super(message); this.code = code; this.details = details; }
 }
 
-export function deliveryCapabilities({ artifactType, availableFormats = [] }) {
+export function deliveryCapabilities({ artifactType, availableFormats = [], details = {} }) {
   const allowed = requireArtifactType(artifactType);
   const available = new Set(availableFormats);
   return allowed.map((format) => ({
     format,
     status: available.has(format) ? "available" : "unavailable",
-    ...(available.has(format) ? {} : { reason: `No ${format} exporter or eligible reviewed artifact is available.` })
+    ...(available.has(format) ? {} : { reason: `No ${format} exporter or eligible reviewed artifact is available.` }),
+    ...(available.has(format) && details[format] ? details[format] : {})
   }));
 }
 
@@ -41,7 +43,9 @@ export async function recordDeliverySelection(projectRoot, input, options = {}) 
     source_revision: input.source_revision, actor: input.actor, decided_at: decidedAt,
     selection_source: input.selection_source ?? "user_conversation",
     ...(input.approval_id ? { approval_id: input.approval_id } : {}),
-    ...(input.pdf_source ? { pdf_source: input.pdf_source } : {})
+    ...(input.pdf_source ? { pdf_source: input.pdf_source } : {}),
+    ...(formats.includes("handout") && input.handout_source ? { handout_source: input.handout_source } : {}),
+    ...(formats.includes("handout") ? { handout_options: { editions: handoutEditions(input.handout_options?.editions) } } : {})
   };
   const relative = path.join(".pptops", "delivery-selections", id, "manifest.json");
   const file = resolveProjectPath(projectRoot, relative);
@@ -63,7 +67,13 @@ export async function readDeliverySelection(projectRoot, id) {
   requireUser(decision.actor);
   const allowed = requireArtifactType(decision.artifact_type);
   if (!Array.isArray(decision.formats) || !decision.formats.length || new Set(decision.formats).size !== decision.formats.length || decision.formats.some(format => !allowed.includes(format)) || !hasText(decision.source_id) || !hasText(decision.source_revision) || !hasText(decision.selection_source) || !Number.isFinite(Date.parse(decision.decided_at))) throw new DeliverySelectionError("DELIVERY_SELECTION_INVALID", "stored decision is incomplete or invalid");
+  if (decision.formats.includes("handout")) handoutEditions(decision.handout_options?.editions, "DELIVERY_SELECTION_INVALID");
   return decision;
+}
+
+function handoutEditions(value, code = "DELIVERY_FORMAT_INVALID") {
+  try { return normalizeHandoutEditions(value); }
+  catch (error) { throw new DeliverySelectionError(code, error.message, { allowed: ["speaker", "audience"] }); }
 }
 
 function requireArtifactType(value) {
