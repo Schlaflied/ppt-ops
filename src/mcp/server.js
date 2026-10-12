@@ -7,7 +7,7 @@ import { serveStdio } from "@modelcontextprotocol/server/stdio";
 import { z } from "zod";
 import { ApplicationError, ApplicationService } from "../application/service.js";
 
-const SERVER_VERSION = "0.1.0";
+const SERVER_VERSION = "0.2.0";
 const READ_ONLY = { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false };
 const MUTATING = { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false };
 

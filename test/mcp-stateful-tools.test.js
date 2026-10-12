@@ -78,6 +78,28 @@ test("MCP handoff requires an accepted exact Review and stored delivery selectio
   assert.equal(stale.structuredContent.error.code, "STALE_OBJECT_REVISION");
 });
 
+test("MCP read polling preserves an interrupted Build until a governed write recovers and resumes it", async t => {
+  const projectDir = await fixture(t); await seedAcceptedBoundaryImages(projectDir); await fs.writeFile(path.join(projectDir, "recovery.md"), "# Recovery trigger\n");
+  const service = await ApplicationService.open(projectDir); const version = await service.freezeVersion();
+  const queued = await service.queueBuild({ versionId: version.id, targets: ["html"], requestId: "recover-build-001" });
+  service.store.claimNextBuild(); service.store.transitionBuild(queued.build.id, "rendering"); service.close();
+  const client = await connect(t, projectDir);
+  const before = await client.callTool({ name: "pptops_build_status", arguments: { build_id: queued.build.id } });
+  assert.equal(before.structuredContent.build.state, "rendering"); assert.equal(before.structuredContent.attempts[0].state, "running");
+  await client.callTool({ name: "pptops_source_import", arguments: { source_file: "recovery.md" } });
+  const recovered = await client.callTool({ name: "pptops_build_status", arguments: { build_id: queued.build.id } });
+  assert.equal(recovered.structuredContent.build.state, "queued"); assert.equal(recovered.structuredContent.attempts[0].error.code, "PROCESS_INTERRUPTED");
+  const resumed = await client.callTool({ name: "pptops_build_create", arguments: { version_id: version.id, targets: ["html"], request_id: "recover-build-001" } });
+  assert.equal(resumed.structuredContent.build_id, queued.build.id); assert.equal(resumed.structuredContent.reused, true);
+  let final;
+  for (let attempt = 0; attempt < 80; attempt += 1) {
+    final = await client.callTool({ name: "pptops_build_status", arguments: { build_id: queued.build.id } });
+    if (["succeeded", "failed"].includes(final.structuredContent.build.state)) break;
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+  assert.equal(final.structuredContent.build.state, "succeeded");
+});
+
 async function fixture(t) {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "ppt-ops-mcp-stateful-"));
   const projectDir = path.join(root, "project"); await initializeProject(projectDir, { name: "mcp-stateful", title: "MCP Stateful" });
