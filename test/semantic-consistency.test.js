@@ -4,6 +4,7 @@ import { validateSemanticRegistry } from "../src/semantic-consistency/registry.j
 import { validateSemanticBindings } from "../src/semantic-consistency/bindings.js";
 import { checkSemanticConsistency } from "../src/semantic-consistency/check.js";
 import { analyzeLearningCoverage, analyzeSemanticImpact } from "../src/semantic-consistency/coverage.js";
+import { evaluateSemanticDeliveryAcceptance } from "../src/semantic-consistency/acceptance.js";
 
 const registryInput = () => ({ contract_version: "1.0", entities: [
   { id: "lo.hazard-identification", type: "learning_objective", revision: 1, canonical_value: "Identify hazards before work begins", authority: { source_id: "curriculum-approved", locator: "LO-1" } },
@@ -17,6 +18,16 @@ test("Stage 1 validates stable shared semantics without resolving conflicts", ()
   assert.deepEqual(result.findings, [{ code: "SEMANTIC_VARIANT_CONFLICT", severity: "blocking", entity_id: "risk.high", observed: "Report when practical", expected: "Stop work and report immediately", resolution: "human_required" }]);
   assert.throws(() => validateSemanticRegistry({ contract_version: "1.0", entities: [{ ...registryInput().entities[0], authority: null }] }), { code: "SEMANTIC_AUTHORITY_REQUIRED" });
   assert.throws(() => validateSemanticRegistry({ contract_version: "1.0", entities: [registryInput().entities[0], registryInput().entities[0]] }), { code: "SEMANTIC_ENTITY_DUPLICATE" });
+});
+
+test("Stage 5 keeps synthetic regression evidence separate from human acceptance", () => {
+  const manifest = { artifacts: ["presentation", "learner_guide", "assessment", "alignment_report"].map((role, index) => ({ id: `artifact-${index}`, role })) };
+  const input = { consistency: { passed: true }, coverage: { passed: true }, manifest, caseEvidence: { kind: "synthetic_fixture", case_id: "hazard-regression", artifact_hashes: [] }, humanAcceptance: { decision: "accepted", actor: "reviewer", role: "Instructional Designer" } };
+  assert.throws(() => evaluateSemanticDeliveryAcceptance(input), { code: "SEMANTIC_REAL_CASE_REQUIRED" });
+  const accepted = evaluateSemanticDeliveryAcceptance({ ...input, caseEvidence: { kind: "authorized_real_case", case_id: "authorized-hazard-delivery", artifact_hashes: manifest.artifacts.map((artifact, index) => ({ artifact_id: artifact.id, sha256: String(index + 1).repeat(64) })) } });
+  assert.equal(accepted.accepted, true);
+  assert.equal(accepted.automated_check_is_not_human_approval, true);
+  assert.equal(accepted.human_acceptance.role, "Instructional Designer");
 });
 
 test("Stage 4 traces LO coverage and reports stale artifacts after a shared update", () => {
