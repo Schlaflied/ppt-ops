@@ -3,6 +3,7 @@ import test from "node:test";
 import { validateSemanticRegistry } from "../src/semantic-consistency/registry.js";
 import { validateSemanticBindings } from "../src/semantic-consistency/bindings.js";
 import { checkSemanticConsistency } from "../src/semantic-consistency/check.js";
+import { analyzeLearningCoverage, analyzeSemanticImpact } from "../src/semantic-consistency/coverage.js";
 
 const registryInput = () => ({ contract_version: "1.0", entities: [
   { id: "lo.hazard-identification", type: "learning_objective", revision: 1, canonical_value: "Identify hazards before work begins", authority: { source_id: "curriculum-approved", locator: "LO-1" } },
@@ -16,6 +17,27 @@ test("Stage 1 validates stable shared semantics without resolving conflicts", ()
   assert.deepEqual(result.findings, [{ code: "SEMANTIC_VARIANT_CONFLICT", severity: "blocking", entity_id: "risk.high", observed: "Report when practical", expected: "Stop work and report immediately", resolution: "human_required" }]);
   assert.throws(() => validateSemanticRegistry({ contract_version: "1.0", entities: [{ ...registryInput().entities[0], authority: null }] }), { code: "SEMANTIC_AUTHORITY_REQUIRED" });
   assert.throws(() => validateSemanticRegistry({ contract_version: "1.0", entities: [registryInput().entities[0], registryInput().entities[0]] }), { code: "SEMANTIC_ENTITY_DUPLICATE" });
+});
+
+test("Stage 4 traces LO coverage and reports stale artifacts after a shared update", () => {
+  const { registry: previous } = validateSemanticRegistry(registryInput());
+  const manifest = validateSemanticBindings(previous, [
+    { id: "deck", role: "presentation", format: "pptx", bindings: [{ id: "deck-lo", entity_id: "lo.hazard-identification", entity_revision: 1, locator: { kind: "slide", number: 3 }, observed_text: "Identify hazards before work begins" }] },
+    { id: "guide", role: "learner_guide", format: "docx", bindings: [{ id: "guide-lo", entity_id: "lo.hazard-identification", entity_revision: 1, locator: { kind: "section", id: "objective-1" }, observed_text: "Identify hazards before work begins" }] },
+    { id: "quiz", role: "assessment", format: "assessment", bindings: [{ id: "quiz-lo", entity_id: "lo.hazard-identification", entity_revision: 1, locator: { kind: "assessment_item", id: "q1" }, observed_text: "Identify hazards before work begins" }] },
+    { id: "alignment", role: "alignment_report", format: "alignment_report", bindings: [{ id: "alignment-lo", entity_id: "lo.hazard-identification", entity_revision: 1, locator: { kind: "alignment_row", id: "row-1" }, observed_text: "Identify hazards before work begins" }] }
+  ]);
+  const coverage = analyzeLearningCoverage(previous, manifest, [{ objective_id: "lo.hazard-identification", slide_binding_ids: ["deck-lo"], guide_binding_ids: ["guide-lo"], assessment_binding_ids: ["quiz-lo"], alignment_binding_ids: ["alignment-lo"] }]);
+  assert.equal(coverage.passed, true);
+  assert.equal(coverage.human_acceptance, "pending");
+  const changedInput = registryInput();
+  changedInput.entities[0] = { ...changedInput.entities[0], revision: 2, canonical_value: "Identify and report hazards before work begins" };
+  const { registry: current } = validateSemanticRegistry(changedInput);
+  const impact = analyzeSemanticImpact(previous, current, manifest);
+  assert.equal(impact.changes.length, 1);
+  assert.deepEqual(impact.impacts.map((item) => item.artifact_id), ["deck", "guide", "quiz", "alignment"]);
+  assert.ok(impact.impacts.every((item) => item.status === "stale"));
+  assert.equal(impact.mutation_performed, false);
 });
 
 test("Stage 3 reports conflict, omission, location, original text, and expected value", () => {
