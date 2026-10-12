@@ -28,6 +28,7 @@ import { compareSourceRevision } from "../sources/revision-impact.js";
 import { createRefinementScope, inspectRefinementPptx, stableHash } from "../refinement/pptx-inspection.js";
 import { applyRefinementPptx } from "../refinement/pptx-editor.js";
 import { reviewRefinementCandidate } from "../refinement/pptx-diff.js";
+import { createRefinementDecision, createRefinementVersion } from "../refinement/lifecycle.js";
 
 const CONTRACT_FILES = ["project.json", "sources.json", "outline.json", "pages.json", "theme.json", "assets.json", "templates.json"];
 const COLLECTIONS = { source: "sources", page_spec: "pages", asset: "assets", template: "templates" };
@@ -180,6 +181,24 @@ export class ApplicationService {
     await writeImmutableOrVerify(resolveProjectPath(this.project.root, reportRelative), result.report);
     await writeImmutableTextOrVerify(resolveProjectPath(this.project.root, previewRelative), result.preview);
     return { diff: result.report, diff_file: reportRelative, preview_file: previewRelative };
+  }
+
+  async decidePptxRefinementCandidate(candidateId, { decision, actor, expectedRevision }) {
+    const base = path.join(".pptops", "refinement", "candidates", candidateId);
+    const candidate = await readRefinementJson(resolveProjectPath(this.project.root, path.join(base, "evidence.json")), "REFINEMENT_CANDIDATE_REQUIRED", "unknown refinement Candidate");
+    const diff = await readRefinementJson(resolveProjectPath(this.project.root, path.join(base, "scoped-diff.json")), "REFINEMENT_REVIEW_REQUIRED", "review the refinement Candidate before decision");
+    const decisionFile = resolveProjectPath(this.project.root, path.join(base, "decision.json"));
+    const current = await readOptionalJson(decisionFile);
+    const record = createRefinementDecision({ candidate, diff, decision, actor, expectedRevision, current });
+    await atomicWriteJson(decisionFile, record);
+    const version = createRefinementVersion(candidate, record);
+    if (!version) return { decision: record, version: null };
+    const versionBase = path.join(".pptops", "refinement", "versions", version.id), artifactRelative = path.join(versionBase, "refined.pptx"), manifestRelative = path.join(versionBase, "manifest.json");
+    const candidateBytes = await fs.readFile(resolveProjectPath(this.project.root, candidate.artifact));
+    await writeImmutableBytesOrVerify(resolveProjectPath(this.project.root, artifactRelative), candidateBytes);
+    const manifest = { ...version, artifact: artifactRelative.replaceAll("\\", "/") };
+    await writeImmutableOrVerify(resolveProjectPath(this.project.root, manifestRelative), manifest);
+    return { decision: record, version: manifest, manifest_file: manifestRelative };
   }
 
   async previewSourceUpdate(sourceId, inputFile) {
@@ -728,6 +747,7 @@ async function readRefinementJson(file, code, message) {
   try { return JSON.parse(await fs.readFile(file, "utf8")); }
   catch (error) { if (error.code === "ENOENT") throw new ApplicationError(code, message); throw error; }
 }
+async function readOptionalJson(file) { try { return JSON.parse(await fs.readFile(file, "utf8")); } catch (error) { if (error.code === "ENOENT") return null; throw error; } }
 function nextId(prefix, entities) { return `${prefix}-${String(entities.length + 1).padStart(3, "0")}`; }
 function stripRevision({ revision, ...entity }) { return entity; }
 function hashJson(value) { return crypto.createHash("sha256").update(stableJson(value)).digest("hex"); }
