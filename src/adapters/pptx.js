@@ -7,6 +7,7 @@ import { renderNativeDiagram } from "./diagram.js";
 import { assertAccessibleTextCapacity } from "../accessibility/index.js";
 import { compileProjectLayout } from "../layout/catalog.js";
 import { applyCitationManifest } from "../citations/manifest.js";
+import { compileImageSemanticLayout } from "../layout/image-semantics.js";
 
 import { detectRaster } from "../visual-assets/raster.js";
 import { screenshotPlacement, visibleScreenshotRegion } from "../layout/screenshot.js";
@@ -282,7 +283,7 @@ function resolveSlideAssets(page, project) {
 function renderAssets(slide, assets, bounds, fontFace) {
   const gap = 0.22;
   const itemHeight = (bounds.h - gap * (assets.length - 1)) / assets.length;
-  assets.forEach(({ asset, path: imagePath, fit, evidence_purpose }, index) => {
+  assets.forEach(({ asset, path: imagePath, fit, evidence_purpose, region_mappings }, index) => {
     const geometry = { x: bounds.x, y: bounds.y + index * (itemHeight + gap), w: bounds.w, h: itemHeight };
     assertGeometry(geometry);
     if (asset.screenshot_evidence) {
@@ -309,6 +310,15 @@ function renderAssets(slide, assets, bounds, fontFace) {
       path: imagePath, ...image,
       altText: accessibleAssetDescription(asset),
       objectName: `Asset ${asset.id}`
+    });
+    const semantic = compileImageSemanticLayout(asset, { region_mappings }, geometry);
+    for (const connection of semantic.connections) addShape(slide, "line", {
+      x: connection.from.x, y: connection.from.y, w: connection.to.x - connection.from.x, h: connection.to.y - connection.from.y,
+      line: { color: "D14343", width: 1.5 }, objectName: `Semantic connector ${connection.id}`
+    });
+    for (const annotation of semantic.annotations) addText(slide, annotation.text, {
+      ...annotation.geometry, fontFace, fontSize: 11, color: "222222", fill: { color: "FFFFFF", transparency: 5 },
+      line: { color: "D14343", width: 1 }, margin: 0.05, valign: "mid", align: "center", objectName: `Semantic label ${annotation.id}`
     });
   });
 }

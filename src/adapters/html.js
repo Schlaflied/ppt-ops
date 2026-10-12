@@ -5,6 +5,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { compileProjectLayout } from "../layout/catalog.js";
 import { applyCitationManifest } from "../citations/manifest.js";
+import { compileImageSemanticLayout } from "../layout/image-semantics.js";
 
 const MIME_TYPES = new Map([
   [".avif", "image/avif"], [".gif", "image/gif"], [".jpeg", "image/jpeg"],
@@ -56,8 +57,9 @@ h1{max-width:1500px;margin:0;font-family:var(--heading),sans-serif;font-size:76p
 .body-copy li{display:flex;gap:18px;align-items:flex-start}.body-copy li::before{content:"";flex:none;width:12px;height:12px;margin-top:.55em;border-radius:50%;background:var(--accent)}
 .assets{height:100%;min-height:360px;display:grid;place-items:center;gap:28px}
 .assets:empty{display:none}.slide-content:not(:has(.assets > *)){grid-template-columns:1fr}
-figure{width:100%;height:100%;max-height:650px;margin:0;display:grid;place-items:center;overflow:hidden}
+figure{position:relative;width:100%;height:100%;max-height:650px;margin:0;display:grid;place-items:center;overflow:hidden}
 figure img,figure video{display:block;width:100%;height:100%;object-fit:var(--fit,contain)}
+.semantic-label{position:absolute;z-index:2;display:grid;place-items:center;padding:6px;border:2px solid var(--accent);background:var(--bg);font:600 18px/1.2 var(--body);text-align:center}.semantic-connectors{position:absolute;z-index:1;inset:0;width:100%;height:100%;pointer-events:none}.semantic-connectors line{stroke:var(--accent);stroke-width:.5}
 .asset-link{display:inline-flex;align-items:center;justify-content:center;padding:24px 32px;border:3px solid var(--accent);border-radius:999px;color:var(--text);font-size:28px;text-decoration:none}
 .slide-footer{display:flex;justify-content:space-between;gap:40px;font-size:21px;letter-spacing:.04em;opacity:.56}
 .slide-citations{display:flex;flex-wrap:wrap;gap:8px 22px;min-height:28px;font-size:16px;line-height:1.35;opacity:.78}.slide-citations span{white-space:nowrap}
@@ -136,9 +138,17 @@ function renderAsset(slot, asset, pageNumber) {
   const label = escapeAttribute(decorative ? "" : slot.alt ?? asset.alt ?? description ?? slot.role);
   const assetId = escapeAttribute(asset.id);
   const style = `--fit:${slot.fit === "cover" ? "cover" : "contain"}`;
-  if (asset.mime.startsWith("image/")) return `<figure ${decorative ? 'aria-hidden="true"' : 'role="group"'} style="${style}"><img data-asset-id="${assetId}" src="${asset.uri}" alt="${label}"${description && !decorative ? ` aria-describedby="description-${assetId}-${pageNumber}"` : ""}>${description && !decorative ? `<figcaption class="a11y-description" id="description-${assetId}-${pageNumber}">${escapeHtml(description)}</figcaption>` : ""}</figure>`;
+  if (asset.mime.startsWith("image/")) return `<figure ${decorative ? 'aria-hidden="true"' : 'role="group"'} style="${style}"><img data-asset-id="${assetId}" src="${asset.uri}" alt="${label}"${description && !decorative ? ` aria-describedby="description-${assetId}-${pageNumber}"` : ""}>${renderSemanticAnnotations(asset, slot)}${description && !decorative ? `<figcaption class="a11y-description" id="description-${assetId}-${pageNumber}">${escapeHtml(description)}</figcaption>` : ""}</figure>`;
   if (asset.mime.startsWith("video/")) return `<figure aria-label="${label}" style="${style}"><video data-asset-id="${assetId}" controls preload="metadata" src="${asset.uri}"></video></figure>`;
   return `<a class="asset-link" href="${asset.uri}" download="${escapeAttribute(path.basename(asset.file))}">${label}</a>`;
+}
+
+function renderSemanticAnnotations(asset, slot) {
+  const layout = compileImageSemanticLayout(asset, slot, { x: 0, y: 0, w: 100, h: 100 });
+  if (!layout.annotations.length) return "";
+  const labels = layout.annotations.map(({ id, text, geometry }) => `<span class="semantic-label" data-content-id="${escapeAttribute(id)}" style="left:${geometry.x}%;top:${geometry.y}%;width:${geometry.w}%;height:${geometry.h}%">${escapeHtml(text)}</span>`).join("");
+  const lines = layout.connections.map(({ from, to }) => `<line x1="${from.x}" y1="${from.y}" x2="${to.x}" y2="${to.y}"/>`).join("");
+  return `<svg class="semantic-connectors" viewBox="0 0 100 100" aria-hidden="true">${lines}</svg>${labels}`;
 }
 
 function escapeHtml(value) {
