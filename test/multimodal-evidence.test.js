@@ -1,9 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { createAudioTranscriptEvidence, createImageOcrEvidence } from "../src/sources/multimodal-evidence.js";
+import { createAudioTranscriptEvidence, createImageOcrEvidence, createVideoEvidence } from "../src/sources/multimodal-evidence.js";
 
 const image = { id: "source-image", sha256: "a".repeat(64), media_kind: "image" };
 const audio = { id: "source-audio", sha256: "b".repeat(64), media_kind: "audio" };
+const video = { id: "source-video", sha256: "c".repeat(64), media_kind: "video" };
 
 test("Stage 2 records deterministic local OCR evidence with page and region locators", () => {
   const input = { source: image, engine: { name: "fixture-ocr", version: "1", execution: "local" }, regions: [
@@ -16,6 +17,27 @@ test("Stage 2 records deterministic local OCR evidence with page and region loca
   assert.equal(first.external_authorized, false);
   assert.deepEqual(first.regions.map(({ state }) => state), ["pending_review", "unreadable"]);
   assert.equal(first.review.state, "needs_review");
+});
+
+test("Stage 4 combines speech, frame text, and visual events with traceable video locators", () => {
+  const input = { source: video, engine: { name: "fixture-video", version: "1", execution: "local" }, duration_ms: 5000,
+    speech: [{ start_ms: 0, end_ms: 1500, keyframe_ms: 500, text: "Open the panel", speaker: "speaker-1", confidence: .95 }],
+    frame_text: [{ start_ms: 1000, end_ms: 2500, keyframe_ms: 1500, text: "Hazard report", confidence: .9, region: { x: .1, y: .1, width: .4, height: .2 } }],
+    visual_events: [{ start_ms: 2500, end_ms: 4000, keyframe_ms: 3000, text: "User submits form", confidence: .7, unresolved: true }]
+  };
+  const result = createVideoEvidence(input);
+  assert.equal(result.id, createVideoEvidence(input).id);
+  assert.deepEqual(Object.keys(result.channels), ["speech", "frame_text", "visual_events"]);
+  assert.equal(result.channels.frame_text[0].region.width, .4);
+  assert.equal(result.review.state, "needs_review");
+});
+
+test("Stage 4 supports silent video and rejects invalid duration, locators, and empty evidence", () => {
+  const base = { source: video, engine: { name: "video", version: "1", execution: "local" }, duration_ms: 2000, visual_events: [{ start_ms: 0, end_ms: 1000, keyframe_ms: 500, text: "Cursor moves", confidence: 1 }] };
+  assert.equal(createVideoEvidence(base).channels.speech.length, 0);
+  assert.throws(() => createVideoEvidence({ ...base, speech: [], frame_text: [], visual_events: [] }), (error) => error.code === "VIDEO_EVIDENCE_REQUIRED");
+  assert.throws(() => createVideoEvidence({ ...base, duration_ms: 0 }), (error) => error.code === "VIDEO_DURATION_INVALID");
+  assert.throws(() => createVideoEvidence({ ...base, visual_events: [{ ...base.visual_events[0], keyframe_ms: 2500 }] }), (error) => error.code === "VIDEO_LOCATOR_INVALID");
 });
 
 test("Stage 3 records ordered local transcripts with speakers, overlap, and review states", () => {
