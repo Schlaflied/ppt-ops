@@ -299,6 +299,7 @@ function validateRegionMappings(value, field, errors) {
     else if (contentIds.has(mapping.content_id)) errors.push(`${field} contains duplicate content_id: ${mapping.content_id}`); else contentIds.add(mapping.content_id);
     if (!isId(mapping?.region_id)) errors.push(`${field}[${index}].region_id must be a stable lowercase identifier`);
     if (mapping?.anchor_id !== undefined && !isId(mapping.anchor_id)) errors.push(`${field}[${index}].anchor_id must be a stable lowercase identifier`);
+    if (mapping?.label !== undefined && (typeof mapping.label !== "string" || mapping.label.length < 1 || mapping.label.length > 80)) errors.push(`${field}[${index}].label must be a string of 1–80 characters`);
   }
 }
 

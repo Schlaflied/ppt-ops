@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import fs from "node:fs/promises";
 import test from "node:test";
 import { validateV1Bundle, validateV1Entity } from "../src/contracts/v1.js";
 import { analyzeImageSemantics } from "../src/qa/image-semantics.js";
@@ -25,6 +26,22 @@ test("V1 contracts bind page content to declared semantic regions and anchors", 
   assert.deepEqual(validateV1Bundle(bundle), []);
   bundle.pages[0].asset_slots[0].region_mappings[0].region_id = "missing";
   assert.ok(validateV1Bundle(bundle).some((error) => error.includes("references missing region: missing")));
+});
+
+test("region mappings may carry a display label in both page-spec schemas and the V1 contract", async () => {
+  const mapping = { content_id: "clinic-copy", region_id: "clinic", anchor_id: "clinic-left", label: "Clinic intake" };
+  for (const file of ["schemas/page-spec.schema.json", "schemas/v1/page-spec.schema.json"]) {
+    const schema = JSON.parse(await fs.readFile(file, "utf8"));
+    const item = findRegionMappingItems(schema);
+    assert.equal(item.additionalProperties, false, file);
+    assert.deepEqual(Object.keys(mapping).filter((key) => !item.properties[key]), [], file);
+    assert.deepEqual(item.properties.label, { type: "string", minLength: 1, maxLength: 80 }, file);
+  }
+  const asset = base("asset", "multi-scene", { type: "image", file: "multi.png", sha256: digest, image_semantics: semantics });
+  const bundle = fixture(asset, [{ role: "hero", asset_id: asset.id, region_mappings: [mapping] }]);
+  assert.deepEqual(validateV1Bundle(bundle), []);
+  bundle.pages[0].asset_slots[0].region_mappings[0].label = "x".repeat(81);
+  assert.ok(validateV1Bundle(bundle).some((error) => error.includes("label must be a string of 1–80 characters")));
 });
 
 test("contract rejects malformed regions, duplicate mappings and unknown anchor targets", () => {
@@ -59,4 +76,14 @@ function fixture(asset, assetSlots) {
   const source = base("source", "source-001", { file: "brief.md", bytes: 1, mime: "text/markdown", sha256: digest });
   const page = base("page_spec", "page-001", { page: 1, task: "Compare", three_second_message: "Compare workplaces", relation: "comparison", screen_text: { title: "Compare" }, visual_job: "Map copy to regions", source_refs: [{ source_id: source.id, locator: "" }], asset_slots: assetSlots, content_status: "draft", renderers: { html: {}, pptx: {} } });
   return { project, sources: [source], outline: base("outline", "outline-main", { sections: [{ id: "main", title: "Main", page_ids: [page.id] }] }), pages: [page], theme: base("theme", "theme-default", { tokens: {} }), assets: [asset], templates: [], candidates: [], approvals: [], versions: [], builds: [], reviews: [], handoffs: [] };
+}
+
+function findRegionMappingItems(node) {
+  if (!node || typeof node !== "object") return undefined;
+  if (node.region_mappings?.items) return node.region_mappings.items;
+  for (const value of Object.values(node)) {
+    const found = findRegionMappingItems(value);
+    if (found) return found;
+  }
+  return undefined;
 }

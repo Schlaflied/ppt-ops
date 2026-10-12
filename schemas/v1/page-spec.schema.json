@@ -46,7 +46,8 @@
                   "properties": {
                     "content_id": { "type": "string", "pattern": "^[a-z0-9][a-z0-9._-]*$" },
                     "region_id": { "type": "string", "pattern": "^[a-z0-9][a-z0-9._-]*$" },
-                    "anchor_id": { "type": "string", "pattern": "^[a-z0-9][a-z0-9._-]*$" }
+                    "anchor_id": { "type": "string", "pattern": "^[a-z0-9][a-z0-9._-]*$" },
+                    "label": { "type": "string", "minLength": 1, "maxLength": 80 }
                   },
                   "additionalProperties": false
                 }
