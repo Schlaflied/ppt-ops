@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ppt-ops.local/schemas/v1/multimodal-extraction.schema.json",
+  "title": "Stage 1 Multimodal Extraction Manifest",
+  "type": "object",
+  "required": ["contract_version", "format", "source_identity", "privacy", "capabilities", "locator_contract", "evidence_kinds", "segments", "review", "findings"],
+  "properties": {
+    "contract_version": { "const": "1.0" },
+    "format": { "enum": ["image", "audio", "video"] },
+    "source_identity": { "type": "object", "required": ["sha256", "mime", "parser"] },
+    "privacy": { "type": "object", "properties": { "processing": { "const": "local_only" }, "external_authorized": { "const": false } }, "required": ["processing", "external_authorized"] },
+    "evidence_kinds": { "type": "array", "items": { "enum": ["structured_extraction", "visual_observation", "transcription", "model_inference", "user_confirmation"] }, "uniqueItems": true },
+    "segments": { "type": "array" },
+    "review": { "type": "object", "required": ["state", "reasons"] },
+    "findings": { "type": "array" }
+  }
+}

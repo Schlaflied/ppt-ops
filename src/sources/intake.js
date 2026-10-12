@@ -10,8 +10,28 @@ const TYPES = Object.freeze({
   ".md": { mime: "text/markdown", parser: "markdown" },
   ".markdown": { mime: "text/markdown", parser: "markdown" },
   ".docx": { mime: "application/vnd.openxmlformats-officedocument.wordprocessingml.document", parser: "docx" },
-  ".pptx": { mime: "application/vnd.openxmlformats-officedocument.presentationml.presentation", parser: "pptx" }
+  ".pptx": { mime: "application/vnd.openxmlformats-officedocument.presentationml.presentation", parser: "pptx" },
+  ".png": { mime: "image/png", parser: "multimodal-manifest", media: "image", signature: "png" },
+  ".jpg": { mime: "image/jpeg", parser: "multimodal-manifest", media: "image", signature: "jpeg" },
+  ".jpeg": { mime: "image/jpeg", parser: "multimodal-manifest", media: "image", signature: "jpeg" },
+  ".wav": { mime: "audio/wav", parser: "multimodal-manifest", media: "audio", signature: "wav" },
+  ".mp3": { mime: "audio/mpeg", parser: "multimodal-manifest", media: "audio", signature: "mp3" },
+  ".mp4": { mime: "video/mp4", parser: "multimodal-manifest", media: "video", signature: "mp4" },
+  ".webm": { mime: "video/webm", parser: "multimodal-manifest", media: "video", signature: "webm" }
 });
+
+const MULTIMODAL_CAPABILITIES = Object.freeze({
+  contract_version: "1.0", stage: "stage_1_contract_only", local_first: true, external_processing: "explicit_authorization_required",
+  evidence_kinds: ["structured_extraction", "visual_observation", "transcription", "model_inference", "user_confirmation"],
+  review_states: ["pending_review", "unreadable", "inaudible", "low_confidence", "conflict"],
+  media: {
+    image: { formats: ["png", "jpeg"], locators: ["page", "region"], implemented: ["immutable_registration"], pending: ["ocr", "visual_observation"] },
+    audio: { formats: ["wav", "mp3"], locators: ["time_range"], implemented: ["immutable_registration"], pending: ["transcription", "speaker_diarization"] },
+    video: { formats: ["mp4", "webm"], locators: ["time_range", "keyframe", "region"], implemented: ["immutable_registration"], pending: ["audio_transcription", "frame_text", "visual_events"] }
+  }
+});
+
+export function multimodalCapabilities() { return structuredClone(MULTIMODAL_CAPABILITIES); }
 
 export class SourceIntake {
   constructor({ projectRoot, store, projectId, limits = {} }) {
@@ -21,27 +41,33 @@ export class SourceIntake {
     this.limits = { ...DEFAULT_LIMITS, ...limits };
   }
 
-  async importFile(inputFile) {
+  async importFile(inputFile, { signal } = {}) {
+    throwIfAborted(signal);
     const input = path.resolve(inputFile);
     const contents = await fs.readFile(input);
+    throwIfAborted(signal);
     if (contents.byteLength > this.limits.maxFileBytes) throw intakeError("SOURCE_TOO_LARGE", `source exceeds ${this.limits.maxFileBytes} bytes`);
     const definition = TYPES[path.extname(input).toLowerCase()];
-    if (!definition) throw intakeError("UNSUPPORTED_SOURCE_TYPE", "only Markdown, DOCX, and PPTX sources are supported");
-    verifySignature(contents, definition.parser);
+    if (!definition) throw intakeError("UNSUPPORTED_SOURCE_TYPE", "supported sources: Markdown, DOCX, PPTX, PNG, JPEG, WAV, MP3, MP4, and WebM");
+    verifySignature(contents, definition.signature ?? definition.parser);
     const sha256 = crypto.createHash("sha256").update(contents).digest("hex");
     const existing = this.store?.listEntities(this.projectId, "source").find((source) => source.sha256 === sha256);
     if (existing) return { source: existing, duplicate: true, extracted: await this.readExtraction(existing) };
 
-    const extracted = definition.parser === "markdown" ? extractMarkdown(contents.toString("utf8")) : await extractOpenXml(contents, definition.parser, this.limits);
+    const extracted = definition.parser === "markdown" ? extractMarkdown(contents.toString("utf8"))
+      : definition.parser === "multimodal-manifest" ? createMultimodalManifest({ sha256, definition })
+      : await extractOpenXml(contents, definition.parser, this.limits);
     const id = `source-${sha256.slice(0, 12)}`;
     const extension = path.extname(input).toLowerCase();
     const managedFile = path.join(".pptops", "sources", sha256, `original${extension}`);
     const extractionFile = path.join(".pptops", "sources", sha256, "extracted.json");
     await writeImmutable(this.root, managedFile, contents);
+    throwIfAborted(signal);
     await writeImmutable(this.root, extractionFile, `${JSON.stringify(extracted, null, 2)}\n`);
     const source = createV1Entity("source", id, {
       file: managedFile, original_name: path.basename(input), bytes: contents.byteLength, mime: definition.mime, sha256,
       parser: { name: definition.parser, version: "1" }, extraction_file: extractionFile,
+      ...(definition.media ? { media_kind: definition.media, capability_stage: "stage_1_contract_only", review_state: "pending_review" } : {}),
       segment_count: extracted.segments.length
     });
     return { source: this.store ? this.store.saveEntity(this.projectId, source) : source, duplicate: false, extracted };
@@ -64,6 +90,17 @@ export class SourceIntake {
     const updated = this.store.saveEntity(this.projectId, { ...contract, extraction_file: extractionFile, segment_count: segments.length, correction_revision: revision });
     return { source: updated, extracted };
   }
+}
+
+function createMultimodalManifest({ sha256, definition }) {
+  return {
+    contract_version: "1.0", format: definition.media, source_identity: { sha256, mime: definition.mime, parser: { name: definition.parser, version: "1" } },
+    privacy: { processing: "local_only", external_authorized: false }, capabilities: MULTIMODAL_CAPABILITIES.media[definition.media],
+    locator_contract: { page: "positive integer", region: "normalized x/y/width/height", time_range: "start_ms/end_ms", keyframe: "time_ms" },
+    evidence_kinds: MULTIMODAL_CAPABILITIES.evidence_kinds, segments: [], text: "",
+    review: { state: "pending_review", reasons: ["extractor_not_implemented"] },
+    findings: [{ code: "EXTRACTION_PENDING", state: "pending_review", message: "Stage 1 registers the immutable source and evidence contract; OCR, transcription, and video understanding are not implemented." }]
+  };
 }
 
 export function extractMarkdown(text) {
@@ -125,11 +162,23 @@ async function extractPptx(archive) {
 }
 
 function verifySignature(contents, parser) {
+  if (["png", "jpeg", "wav", "mp3", "mp4", "webm"].includes(parser)) return verifyMediaSignature(contents, parser);
   if (parser === "markdown") {
     if (contents.includes(0)) throw intakeError("MIME_MISMATCH", "Markdown source contains binary data");
     return;
   }
   if (contents[0] !== 0x50 || contents[1] !== 0x4b) throw intakeError("MIME_MISMATCH", `${parser.toUpperCase()} source is not an Open XML ZIP package`);
+}
+function throwIfAborted(signal) { if (signal?.aborted) throw intakeError("SOURCE_IMPORT_CANCELLED", "source import was cancelled; retrying is safe and resumes from immutable content-addressed files"); }
+function verifyMediaSignature(contents, signature) {
+  const ascii = (start, end) => contents.subarray(start, end).toString("ascii");
+  const valid = signature === "png" ? contents.subarray(0, 8).equals(Buffer.from([137,80,78,71,13,10,26,10]))
+    : signature === "jpeg" ? contents[0] === 0xff && contents[1] === 0xd8 && contents.at(-2) === 0xff && contents.at(-1) === 0xd9
+    : signature === "wav" ? ascii(0, 4) === "RIFF" && ascii(8, 12) === "WAVE"
+    : signature === "mp3" ? ascii(0, 3) === "ID3" || (contents[0] === 0xff && (contents[1] & 0xe0) === 0xe0)
+    : signature === "mp4" ? ascii(4, 8) === "ftyp"
+    : signature === "webm" ? contents.subarray(0, 4).equals(Buffer.from([0x1a,0x45,0xdf,0xa3])) : false;
+  if (!valid) throw intakeError("MIME_MISMATCH", `file signature does not match ${signature}`);
 }
 function verifyOpenXmlPackage(archive, parser) {
   const required = parser === "docx" ? "word/document.xml" : "ppt/presentation.xml";

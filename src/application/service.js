@@ -23,7 +23,7 @@ import { proposeAccessibilityRemediation } from "../accessibility/remediation.js
 import { manageCorporateProfile, materializeCorporateProfile } from "../templates/corporate-profile.js";
 import { freezeAudienceVariant, manageAudienceVariants } from "../variants/lifecycle.js";
 import { buildCitationManifest } from "../citations/manifest.js";
-import { SourceIntake } from "../sources/intake.js";
+import { multimodalCapabilities, SourceIntake } from "../sources/intake.js";
 import { compareSourceRevision } from "../sources/revision-impact.js";
 import { createRefinementScope, inspectRefinementPptx, stableHash } from "../refinement/pptx-inspection.js";
 
@@ -111,6 +111,11 @@ export class ApplicationService {
       build: this.requireBuild(review.build_id)
     };
   }
+  async importSource(inputFile, options = {}) {
+    return new SourceIntake({ projectRoot: this.project.root, store: this.store, projectId: this.projectId }).importFile(inputFile, options);
+  }
+
+  sourceIntakeCapabilities() { return multimodalCapabilities(); }
 
   async inspectPptxRefinement(inputFile) {
     if (path.extname(inputFile).toLowerCase() !== ".pptx") throw new ApplicationError("REFINEMENT_PPTX_REQUIRED", "visual refinement requires a PPTX source");
