@@ -1,0 +1,6 @@
+[
+  {"id":"four-panel","regions":[{"id":"one","role":"step","bounds":{"x":0,"y":0,"width":0.5,"height":0.5}},{"id":"two","role":"step","bounds":{"x":0.5,"y":0,"width":0.5,"height":0.5}},{"id":"three","role":"step","bounds":{"x":0,"y":0.5,"width":0.5,"height":0.5}},{"id":"four","role":"step","bounds":{"x":0.5,"y":0.5,"width":0.5,"height":0.5}}]},
+  {"id":"multiple-people","regions":[{"id":"facilitator","role":"person","bounds":{"x":0.05,"y":0.1,"width":0.25,"height":0.8}},{"id":"learner","role":"person","bounds":{"x":0.65,"y":0.1,"width":0.25,"height":0.8}}]},
+  {"id":"multi-step","regions":[{"id":"start","role":"step","bounds":{"x":0.05,"y":0.25,"width":0.25,"height":0.5}},{"id":"finish","role":"step","bounds":{"x":0.7,"y":0.25,"width":0.25,"height":0.5}}]},
+  {"id":"single-subject-whitespace","regions":[{"id":"subject","role":"person","bounds":{"x":0.6,"y":0.1,"width":0.35,"height":0.8}}],"text_safe_areas":[{"id":"copy","bounds":{"x":0.05,"y":0.1,"width":0.45,"height":0.8}}]}
+]
