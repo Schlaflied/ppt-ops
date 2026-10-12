@@ -95,7 +95,7 @@ pptops delivery-retro <project-dir> --record <delivery-record.json>
 
 ### 与 #124（讲稿时长预算）的衔接
 
-#124 的讲稿预算检查（`talk_budget`、`script-review.json` 中逐页 `estimated_seconds` / `duration_source`）尚未合入本分支。合入后只需在逐页时长取值处调用 `resolvePageDuration(page)`：`source === "rehearsed"` 时把 `duration_source` 记为实测（附 `date` / `delivery_id`），否则保持推算。本分支不复制 #124 的代码，演讲者视图的剩余时长仍按 #139 的规则（`talk_budget.total_minutes` 优先，否则推算之和）。
+`pptops script-review`（#124）逐页取时长时调用 `resolvePageDuration(page)`：最近一场演讲有未跳过的实测时，该页 `duration_seconds` 取实测秒数、`duration_source` 为 `rehearsed`（附 `rehearsed_date` / `rehearsed_delivery_id`），否则按字数推算、标为 `estimated`；`estimated_seconds` 始终保留字数推算值便于对照。`summary.total_duration_seconds` / `duration_minutes` 按逐页采用值求和，`summary.duration_source` 为 `estimated`、`rehearsed` 或 `mixed`。只要有一页用了实测且总时长偏离 `talk_budget` 的讲述时长超过容差，就给出 `script-total-duration` 发现项（字数预算检查 `script-total-budget` 不变）。演讲者视图的剩余时长仍按 #139 的规则（`talk_budget.total_minutes` 优先，否则推算之和）。详见 [content-review.md](content-review.md)。
 
 ## 未验证范围
 
