@@ -45,7 +45,8 @@
           "role": { "type": "string", "minLength": 1 },
           "asset_id": { "type": "string", "pattern": "^[a-z0-9][a-z0-9._-]*$" },
           "fit": { "type": "string", "enum": ["cover", "contain"] },
-          "evidence_purpose": { "type": "string", "minLength": 1, "description": "Optional page-specific purpose when the same screenshot supports a different claim on this page." }
+          "evidence_purpose": { "type": "string", "minLength": 1, "description": "Optional page-specific purpose when the same screenshot supports a different claim on this page." },
+          "region_mappings": { "type": "array", "items": { "type": "object", "required": ["content_id", "region_id"], "properties": { "content_id": { "type": "string", "pattern": "^[a-z0-9][a-z0-9._-]*$" }, "region_id": { "type": "string", "pattern": "^[a-z0-9][a-z0-9._-]*$" }, "anchor_id": { "type": "string", "pattern": "^[a-z0-9][a-z0-9._-]*$" } }, "additionalProperties": false } }
         },
         "additionalProperties": false
       }

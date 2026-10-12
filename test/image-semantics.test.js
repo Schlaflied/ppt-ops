@@ -1,0 +1,52 @@
+import assert from "node:assert/strict";
+import test from "node:test";
+import { validateV1Bundle, validateV1Entity } from "../src/contracts/v1.js";
+import { analyzeImageSemantics } from "../src/qa/image-semantics.js";
+
+const digest = "a".repeat(64);
+const base = (kind, id, fields = {}) => ({ contract_version: "1.0", kind, id, ...fields });
+const semantics = {
+  annotation_state: "machine_observed",
+  semantic_regions: [
+    { id: "warehouse", role: "workplace-scene", bounds: { x: 0, y: 0, width: 0.5, height: 1 } },
+    { id: "clinic", role: "workplace-scene", bounds: { x: 0.5, y: 0, width: 0.5, height: 1 } }
+  ],
+  focal_points: [{ id: "clinic-worker", x: 0.75, y: 0.5 }],
+  text_safe_areas: [{ id: "top-labels", bounds: { x: 0, y: 0, width: 1, height: 0.15 } }],
+  anchor_edges: [{ id: "clinic-left", region_id: "clinic", edge: "left" }],
+  minimum_display_size: { width: 0.4, height: 0.4 },
+  forbidden_crops: [{ id: "keep-clinic", bounds: { x: 0.5, y: 0, width: 0.5, height: 1 } }]
+};
+
+test("V1 contracts bind page content to declared semantic regions and anchors", () => {
+  const asset = base("asset", "multi-scene", { type: "image", file: "multi.png", sha256: digest, image_semantics: semantics });
+  assert.deepEqual(validateV1Entity(asset, "asset"), []);
+  const bundle = fixture(asset, [{ role: "hero", asset_id: asset.id, region_mappings: [{ content_id: "clinic-copy", region_id: "clinic", anchor_id: "clinic-left" }] }]);
+  assert.deepEqual(validateV1Bundle(bundle), []);
+  bundle.pages[0].asset_slots[0].region_mappings[0].region_id = "missing";
+  assert.ok(validateV1Bundle(bundle).some((error) => error.includes("references missing region: missing")));
+});
+
+test("contract rejects malformed regions, duplicate mappings and unknown anchor targets", () => {
+  const asset = base("asset", "bad", { type: "image", file: "bad.png", sha256: digest, image_semantics: { ...semantics, semantic_regions: [{ id: "clinic", role: "scene", bounds: { x: 0.8, y: 0, width: 0.4, height: 1 } }], anchor_edges: [{ id: "bad-anchor", region_id: "missing", edge: "diagonal" }] } });
+  const errors = validateV1Entity(asset, "asset");
+  assert.ok(errors.some((error) => error.includes("x + width must not exceed 1")));
+  assert.ok(errors.some((error) => error.includes("references missing semantic region")));
+  assert.ok(errors.some((error) => error.includes("edge is invalid")));
+});
+
+test("QA reports missing mappings, unsafe crops and undersized placements without claiming comprehension", () => {
+  const project = { assets: [{ id: "multi-scene", image_semantics: semantics }], pages: [{ page: 2, asset_slots: [{ asset_id: "multi-scene" }] }] };
+  const result = analyzeImageSemantics(project, [{ page: 2, asset_id: "multi-scene", width: 3000000, height: 2000000, crop: { right: 0.3 } }]);
+  assert.equal(result.status, "failed");
+  assert.equal(result.pixel_semantics_inferred, false);
+  assert.equal(result.human_comprehension_assessed, false);
+  for (const check of ["image-semantics-human-confirmation", "image-region-mapping-missing", "image-minimum-display-size", "image-semantic-region-cropped", "image-forbidden-crop"]) assert.ok(result.findings.some((item) => item.check === check));
+});
+
+function fixture(asset, assetSlots) {
+  const project = base("project", "demo", { title: "Demo", format: "16:9", outputs: ["pptx"], source_ids: ["source-001"], outline_id: "outline-main", theme_id: "theme-default", asset_ids: [asset.id] });
+  const source = base("source", "source-001", { file: "brief.md", bytes: 1, mime: "text/markdown", sha256: digest });
+  const page = base("page_spec", "page-001", { page: 1, task: "Compare", three_second_message: "Compare workplaces", relation: "comparison", screen_text: { title: "Compare" }, visual_job: "Map copy to regions", source_refs: [{ source_id: source.id, locator: "" }], asset_slots: assetSlots, content_status: "draft", renderers: { html: {}, pptx: {} } });
+  return { project, sources: [source], outline: base("outline", "outline-main", { sections: [{ id: "main", title: "Main", page_ids: [page.id] }] }), pages: [page], theme: base("theme", "theme-default", { tokens: {} }), assets: [asset], templates: [], candidates: [], approvals: [], versions: [], builds: [], reviews: [], handoffs: [] };
+}

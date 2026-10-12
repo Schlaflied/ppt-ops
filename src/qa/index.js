@@ -6,6 +6,7 @@ import path from "node:path";
 import { promisify } from "node:util";
 import JSZip from "jszip";
 import { analyzeScreenshotEvidence } from "./screenshot-evidence.js";
+import { analyzeImageSemantics } from "./image-semantics.js";
 
 import { densityGuidanceFor, visibleCharacterCount } from "../contracts/delivery.js";
 
@@ -20,6 +21,7 @@ export async function inspectPresentation({ project, pptxFile, evidenceDir, rend
     findings: structural.findings,
     pages: structural.pages,
     screenshot_evidence: structural.screenshot_evidence,
+    image_semantics: structural.image_semantics,
     rendering
   };
 }
@@ -57,12 +59,14 @@ export async function inspectPptxStructure(pptxFile, project, options = {}) {
     pages.push({ page, checks: ["out-of-bounds", "unintended-overlap", "font-substitution", "density"], finding_count: pageFindings.length });
   }
   const screenshotEvidence = analyzeScreenshotEvidence(project, assetPlacements, options);
+  const imageSemantics = analyzeImageSemantics(project, assetPlacements);
   findings.push(...screenshotEvidence.findings);
+  findings.push(...imageSemantics.findings);
   for (const page of pages) {
-    page.checks.push("screenshot-evidence");
+    page.checks.push("screenshot-evidence", "image-semantics");
     page.finding_count = findings.filter((item) => item.page === page.page).length;
   }
-  return { pages, findings, screenshot_evidence: screenshotEvidence };
+  return { pages, findings, screenshot_evidence: screenshotEvidence, image_semantics: imageSemantics };
 }
 
 export async function renderPresentation({ pptxFile, evidenceDir, commands = defaultCommands() }) {
