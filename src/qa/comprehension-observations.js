@@ -13,7 +13,7 @@ export function collectComprehensionObservations(pages, { source }) {
     interaction_affordance: element.interaction_affordance === true,
     evidence_source: source,
     confidence: Number.isFinite(element.confidence) ? element.confidence : 1
-  }));
+  })));
 }
 
 export const collectHtmlComprehensionObservations = (pages) => collectComprehensionObservations(pages, { source: "html-dom-contract" });
