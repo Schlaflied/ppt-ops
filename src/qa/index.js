@@ -17,8 +17,8 @@ import { analyzeOnlineLecture, extractPptxOnlineElements } from "./online-lectur
 const execFileAsync = promisify(execFile);
 const POWERPOINT = "/Applications/Microsoft PowerPoint.app";
 
-export async function inspectPresentation({ project, pptxFile, evidenceDir, render = true, commands = defaultCommands() }) {
-  const structural = await inspectPptxStructure(pptxFile, project);
+export async function inspectPresentation({ project, pptxFile, evidenceDir, render = true, commands = defaultCommands(), comprehensionObservations }) {
+  const structural = await inspectPptxStructure(pptxFile, project, { comprehensionObservations });
   const downscaleHeights = project.project?.delivery_mode === ONLINE_LECTURE_MODE ? [720] : [];
   const rendering = render ? await renderPresentation({ pptxFile, evidenceDir, commands, downscaleHeights }) : degradedRendering("rendering disabled");
   return {
