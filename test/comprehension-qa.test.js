@@ -34,3 +34,13 @@ test("invalid renderer observations fail closed", () => {
   assert.throws(() => analyzeComprehensionEvidence(project, [{ page: 99, element_id: "x", kind: "label", evidence_source: "html-dom" }]), { code: "COMPREHENSION_OBSERVATION_PAGE_INVALID" });
   assert.throws(() => analyzeComprehensionEvidence(project, [{ page: 1, element_id: "x", kind: "label", evidence_source: "html-dom", confidence: 2 }]), { code: "COMPREHENSION_CONFIDENCE_INVALID" });
 });
+
+test("Stage 3 reports message, image-region, and decorative interference risks as heuristics", () => {
+  const report = analyzeComprehensionEvidence({ pages: [{ page: 1, three_second_message: "Find the hazard" }] }, [
+    { page: 1, element_id: "headline", kind: "content", semantic_role: "message", emphasis: "primary", message_alignment: "unknown", evidence_source: "html-dom", confidence: 0.9 },
+    { page: 1, element_id: "scene", kind: "image", semantic_role: "supporting_content", declared_region_count: 3, mapped_region_count: 1, evidence_source: "html-dom", confidence: 0.8 },
+    { page: 1, element_id: "glow", kind: "frame", semantic_role: "decoration", decorative_area_ratio: 0.4, overlaps_primary_task: true, evidence_source: "render-observation", confidence: 0.7 }
+  ]);
+  for (const check of ["three-second-message-alignment-unverified", "image-region-mapping-unverified", "decorative-interference-risk"]) assert.ok(report.findings.some((finding) => finding.check === check));
+  assert.equal(report.audience_comprehension_proven, false);
+});
