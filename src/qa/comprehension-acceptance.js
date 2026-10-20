@@ -10,6 +10,9 @@ export function createComprehensionAcceptance({ report, build, review, caseEvide
   required(caseEvidence?.id, "COMPREHENSION_CASE_REQUIRED", "case evidence is required");
   required(humanReview?.actor, "COMPREHENSION_REVIEW_ACTOR_REQUIRED", "a named human reviewer is required");
   if (!["accepted", "changes_required", "inconclusive"].includes(humanReview.conclusion)) throw coded("COMPREHENSION_REVIEW_CONCLUSION_INVALID", "unsupported human conclusion");
+  if (review.build_id !== build.id || caseEvidence.build_id !== build.id || caseEvidence.review_id !== review.id) throw coded("COMPREHENSION_BINDING_MISMATCH", "review and case evidence must reference the selected build and review");
+  if (!report || !["not_assessed", "human_review_required", "no_heuristic_findings"].includes(report.status) || !Array.isArray(report.findings)) throw coded("COMPREHENSION_REPORT_INVALID", "a comprehension report is required");
+  if (humanReview.conclusion === "accepted" && report.status === "not_assessed") throw coded("COMPREHENSION_REPORT_NOT_ASSESSED", "unassessed evidence cannot receive formal acceptance");
   const evidence_hash = evidenceSha256(report);
   if (caseEvidence.report_sha256 !== evidence_hash) throw coded("COMPREHENSION_EVIDENCE_HASH_MISMATCH", "the human result is not bound to this report");
   if (humanReview.conclusion === "accepted" && caseEvidence.kind !== "authorized_real_case") throw coded("COMPREHENSION_REAL_CASE_REQUIRED", "formal acceptance requires an authorized real case");
