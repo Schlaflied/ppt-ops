@@ -15,14 +15,19 @@ export const PAGE_PROTOTYPE_CATALOG = Object.freeze([
 ]);
 
 export function validatePagePrototype(value) {
+  if (!isObject(value)) return ["prototype must be an object"];
   const errors = [];
+  if (value.contract_version !== "1.0") errors.push("contract_version must be 1.0");
   if (value?.kind !== "page_prototype") errors.push("kind must be page_prototype");
-  for (const field of ["id", "name", "purpose"]) if (!hasText(value?.[field])) errors.push(`${field} is required`);
+  if (typeof value.id !== "string" || !/^prototype-[a-z0-9-]+$/.test(value.id)) errors.push("id must be a stable prototype identifier");
+  for (const field of ["name", "purpose"]) if (!hasText(value?.[field])) errors.push(`${field} is required`);
   if (!Array.isArray(value?.relations) || value.relations.length === 0 || value.relations.some((item) => !hasText(item))) errors.push("relations must contain at least one relation");
+  else if (new Set(value.relations).size !== value.relations.length) errors.push("relations must contain unique entries");
   if (!CONTENT_MODES.has(value?.content_mode)) errors.push("content_mode is unsupported");
+  if (!isObject(value.capacity)) errors.push("capacity must be an object");
   for (const field of CAPACITY_FIELDS) if (!Number.isInteger(value?.capacity?.[field]) || value.capacity[field] < 0) errors.push(`capacity.${field} must be a non-negative integer`);
   if (!Array.isArray(value?.material_requirements) || value.material_requirements.some((item) => !hasText(item))) errors.push("material_requirements must be text entries");
-  if (!hasText(value?.renderers?.html) || !hasText(value?.renderers?.pptx)) errors.push("independent html and pptx renderer mappings are required");
+  if (!isObject(value.renderers) || !hasText(value?.renderers?.html) || !hasText(value?.renderers?.pptx)) errors.push("independent html and pptx renderer mappings are required");
   return errors;
 }
 
@@ -40,5 +45,6 @@ function prototype(id, purpose, relations, contentMode, capacity, materialRequir
   });
 }
 
-function hasText(value) { return typeof value === "string" && value.trim().length > 0; }
+function hasText(value) { return typeof value === "string" && value.length > 0; }
 
+function isObject(value) { return value !== null && typeof value === "object" && !Array.isArray(value); }
