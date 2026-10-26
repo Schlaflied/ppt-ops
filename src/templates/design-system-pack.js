@@ -1,13 +1,20 @@
-const REQUIRED_GROUPS = ["colors", "typography", "spacing"];
+import { readFileSync } from "node:fs";
+import Ajv2020 from "ajv/dist/2020.js";
+
+const schema = JSON.parse(readFileSync(new URL("../../schemas/v1/design-system-pack.schema.json", import.meta.url), "utf8"));
+const validatePack = new Ajv2020({ allErrors: true }).compile(schema);
 
 export function normalizeDesignSystemPack(input) {
   if (!input || typeof input !== "object" || Array.isArray(input)) throw packError("DESIGN_PACK_INVALID", "pack must be an object");
-  if (input.kind !== "design_system_pack") throw packError("DESIGN_PACK_INVALID", "kind must be design_system_pack");
-  if (!hasText(input.id) || !hasText(input.name)) throw packError("DESIGN_PACK_INVALID", "id and name are required");
-  const tokens = input.tokens ?? {};
-  for (const group of REQUIRED_GROUPS) if (!tokens[group] || typeof tokens[group] !== "object") throw packError("DESIGN_PACK_INVALID", `tokens.${group} is required`);
-  for (const field of ["components", "layouts", "assets"]) if (!Array.isArray(input[field])) throw packError("DESIGN_PACK_INVALID", `${field} must be an array`);
-  return structuredClone({ contract_version: input.contract_version ?? "1.0", ...input });
+  // Only an absent version receives the legacy default. Explicit invalid values
+  // (including null and undefined) must not silently become a supported version.
+  if (Object.hasOwn(input, "contract_version") && input.contract_version !== "1.0") throw packError("DESIGN_PACK_INVALID", "contract_version must be 1.0");
+  const pack = { ...input, contract_version: "1.0" };
+  if (!validatePack(pack)) {
+    const details = validatePack.errors.map((error) => `${error.instancePath || "/"}: ${error.message}`).join("; ");
+    throw packError("DESIGN_PACK_INVALID", details);
+  }
+  return structuredClone(pack);
 }
 
 export function migrateLegacyTemplate(template) {
@@ -24,4 +31,3 @@ export function migrateLegacyTemplate(template) {
 
 function hasText(value) { return typeof value === "string" && value.trim().length > 0; }
 function packError(code, message) { return Object.assign(new Error(message), { code }); }
-
