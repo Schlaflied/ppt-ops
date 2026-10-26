@@ -114,7 +114,7 @@ function catalogPack() {
   return {
     kind: "design_system_pack", id: "design-pack-blue", name: "Technical Blue", tokens: { colors: { accent: "#0057ff" }, typography: { heading: "Aptos" }, spacing: { unit: 8 } },
     components: [{ id: "component-title" }, { id: "component-card" }],
-    layouts: ["cover", "statement", "comparison", "sequence", "evidence", "closing"].map((name, index) => ({ id: `layout-${name}`, semantic_family: index === 0 ? "hero" : name, template_id: index === 0 ? "template-hero" : "template-statement", renderers: { html: `design-${name}-web`, pptx: `design-${name}-native` } })),
+    layouts: ["cover", "statement", "comparison", "sequence", "evidence", "closing"].map((name, index) => ({ id: `layout-${name}`, semantic_family: index === 0 ? "hero" : name })),
     assets: [{ id: "asset-grid", type: "background" }, { id: "asset-arrow", type: "icon" }, { id: "asset-orbit", type: "illustration" }],
     relationships: [{ from: "layout-cover", to: "asset-grid", relation: "uses" }]
   };
